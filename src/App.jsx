@@ -10,7 +10,7 @@ function buildInitialAssessments() {
   AUDIT_STEPS.forEach((step) => {
     initial[step.id] = {};
     step.items.forEach((item) => {
-      initial[step.id][item.id] = { status: 'not-assessed', notes: '' };
+      initial[step.id][item.id] = { status: 'not-assessed', notes: '', evidenceFiles: [] };
     });
   });
   return initial;
