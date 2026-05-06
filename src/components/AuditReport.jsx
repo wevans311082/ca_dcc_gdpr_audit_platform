@@ -1,4 +1,6 @@
 import { AUDIT_STEPS, STATUS_OPTIONS } from '../data/auditSteps';
+import JSZip from 'jszip';
+import { saveAs } from 'file-saver';
 
 function StatusBadge({ status }) {
   const opt = STATUS_OPTIONS.find((s) => s.value === status) || STATUS_OPTIONS[0];
@@ -27,17 +29,78 @@ function computeSummary(assessments) {
 }
 
 function overallOutcome(counts) {
-  if (counts['non-compliant'] > 0) return { label: 'Non-Compliant', color: '#dc2626' };
-  if (counts['not-assessed'] > 0) return { label: 'Incomplete Assessment', color: '#d97706' };
-  if (counts['partial'] > 0) return { label: 'Partially Compliant', color: '#d97706' };
-  return { label: 'Compliant', color: '#16a34a' };
+  if (counts['non-compliant'] > 0) return { label: 'Non-Compliant', color: '#dc2626', recommendation: 'Immediate action required to address non-compliant areas before submitting for DCC certification.' };
+  if (counts['not-assessed'] > 0) return { label: 'Incomplete Assessment', color: '#d97706', recommendation: 'Complete the assessment to generate a final outcome.' };
+  if (counts['partial'] > 0) return { label: 'Partially Compliant', color: '#d97706', recommendation: 'Address partially compliant areas to ensure a strong posture before submitting for DCC certification.' };
+  return { label: 'Compliant', color: '#16a34a', recommendation: 'The applicant appears to have suitable baseline policies and evidence in place. Good to proceed with DCC certification submission.' };
 }
 
 export default function AuditReport({ assessments, assessorName, organisationName, auditDate, onBack }) {
   const { counts, total } = computeSummary(assessments);
   const outcome = overallOutcome(counts);
 
+  // Extract non-compliant / partially compliant items for gap analysis
+  const gapAnalysisItems = [];
+  AUDIT_STEPS.forEach((step) => {
+    step.items.forEach((item) => {
+      const a = assessments[step.id]?.[item.id];
+      if (a && (a.status === 'non-compliant' || a.status === 'partial')) {
+        gapAnalysisItems.push({ stepTitle: step.title, itemLabel: item.label, status: a.status, notes: a.notes });
+      }
+    });
+  });
+
   const handlePrint = () => window.print();
+
+  const handleExportZip = async () => {
+    const zip = new JSZip();
+    const evidenceFolder = zip.folder("evidence");
+
+    const reportData = {
+      meta: {
+        organisationName,
+        assessorName,
+        auditDate,
+        outcome: outcome.label,
+        counts,
+      },
+      gapAnalysis: gapAnalysisItems,
+      details: {},
+    };
+
+    AUDIT_STEPS.forEach((step) => {
+      reportData.details[step.id] = { title: step.title, items: {} };
+      step.items.forEach((item) => {
+        const a = assessments[step.id]?.[item.id] || { status: 'not-assessed', notes: '', evidenceFiles: [] };
+
+        const evidenceSummary = (a.evidenceFiles || []).map(ev => ({
+          name: ev.name,
+          hash: ev.hash
+        }));
+
+        reportData.details[step.id].items[item.id] = {
+          label: item.label,
+          status: a.status,
+          notes: a.notes,
+          evidence: evidenceSummary
+        };
+
+        (a.evidenceFiles || []).forEach(ev => {
+          // Store the file in the zip under the evidence folder
+          // Using hash to prevent naming collisions
+          const fileName = `${ev.hash.substring(0, 8)}_${ev.name}`;
+          evidenceFolder.file(fileName, ev.file);
+        });
+      });
+    });
+
+    zip.file("report.json", JSON.stringify(reportData, null, 2));
+
+    const content = await zip.generateAsync({ type: "blob" });
+    const dateStr = auditDate ? auditDate.replace(/-/g, '') : new Date().toISOString().slice(0, 10).replace(/-/g, '');
+    const safeOrgName = organisationName ? organisationName.replace(/[^a-z0-9]/gi, '_').toLowerCase() : 'org';
+    saveAs(content, `GDPR_Audit_${safeOrgName}_${dateStr}.zip`);
+  };
 
   return (
     <div className="report-container">
@@ -64,6 +127,9 @@ export default function AuditReport({ assessments, assessorName, organisationNam
 
       <section className="report-summary-section" aria-labelledby="summary-heading">
         <h2 id="summary-heading" className="report-section-title">Assessment Summary</h2>
+        <div className="outcome-recommendation" style={{ marginBottom: '1.5rem', padding: '1rem', background: '#f8fafc', borderLeft: `4px solid ${outcome.color}`, borderRadius: '4px' }}>
+          <p style={{ margin: 0 }}><strong>Recommendation:</strong> {outcome.recommendation}</p>
+        </div>
         <div className="summary-grid">
           <div className="summary-card summary-total">
             <span className="summary-number">{total}</span>
@@ -91,6 +157,25 @@ export default function AuditReport({ assessments, assessorName, organisationNam
           </div>
         </div>
       </section>
+
+      {gapAnalysisItems.length > 0 && (
+        <section className="report-summary-section" aria-labelledby="gap-analysis-heading">
+          <h2 id="gap-analysis-heading" className="report-section-title">Gap Analysis</h2>
+          <p style={{ marginBottom: '1rem', color: '#64748b' }}>The following areas require attention (Non-Compliant or Partially Compliant):</p>
+          <ul style={{ listStyleType: 'disc', paddingLeft: '1.5rem' }}>
+            {gapAnalysisItems.map((gap, index) => (
+              <li key={index} style={{ marginBottom: '0.75rem' }}>
+                <strong>{gap.stepTitle}:</strong> {gap.itemLabel}
+                <br />
+                <span className="report-status-badge" style={{ backgroundColor: STATUS_OPTIONS.find(s => s.value === gap.status)?.color, marginTop: '0.25rem', marginBottom: '0.25rem' }}>
+                  {STATUS_OPTIONS.find(s => s.value === gap.status)?.label}
+                </span>
+                {gap.notes && <p style={{ fontSize: '0.85rem', color: '#475569', marginTop: '0.25rem', paddingLeft: '0.5rem', borderLeft: '2px solid #cbd5e1' }}>{gap.notes}</p>}
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       {AUDIT_STEPS.map((step) => (
         <section key={step.id} className="report-step-section" aria-labelledby={`report-step-${step.id}`}>
@@ -133,6 +218,9 @@ export default function AuditReport({ assessments, assessorName, organisationNam
       <div className="report-actions no-print">
         <button className="btn btn-secondary" onClick={onBack}>
           ← Back to Audit
+        </button>
+        <button className="btn btn-primary" onClick={handleExportZip}>
+          📦 Export Audit Data (ZIP)
         </button>
         <button className="btn btn-primary" onClick={handlePrint}>
           🖨️ Print / Save as PDF
