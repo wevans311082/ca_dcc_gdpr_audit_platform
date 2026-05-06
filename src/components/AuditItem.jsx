@@ -1,4 +1,20 @@
+import { useState } from 'react';
 import { STATUS_OPTIONS } from '../data/auditSteps';
+
+const MAX_FILE_SIZE_MB = 20;
+const MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024;
+const MAX_FILES_PER_ITEM = 10;
+const ALLOWED_MIME_TYPES = new Set([
+  'application/pdf',
+  'image/png', 'image/jpeg', 'image/gif', 'image/webp',
+  'text/plain', 'text/csv',
+  'application/msword',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.ms-excel',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'application/vnd.ms-powerpoint',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+]);
 
 // Utility to generate a SHA-256 hash from a File object
 async function hashFile(file) {
@@ -10,6 +26,8 @@ async function hashFile(file) {
 }
 
 export default function AuditItem({ stepId, item, assessment, onChange }) {
+  const [uploadError, setUploadError] = useState(null);
+
   const handleStatusChange = (e) => {
     onChange(stepId, item.id, { status: e.target.value });
   };
@@ -19,18 +37,64 @@ export default function AuditItem({ stepId, item, assessment, onChange }) {
   };
 
   const handleFileUpload = async (e) => {
+    setUploadError(null);
     const files = Array.from(e.target.files);
     if (files.length === 0) return;
 
+    const existingEvidence = assessment.evidenceFiles || [];
+    const slotsAvailable = MAX_FILES_PER_ITEM - existingEvidence.length;
+
+    if (slotsAvailable <= 0) {
+      setUploadError(`Maximum of ${MAX_FILES_PER_ITEM} files per item has been reached.`);
+      e.target.value = '';
+      return;
+    }
+
+    const rejected = [];
+    const accepted = files.slice(0, slotsAvailable).filter((file) => {
+      if (!ALLOWED_MIME_TYPES.has(file.type)) {
+        rejected.push(`"${file.name}" — unsupported file type.`);
+        return false;
+      }
+      if (file.size > MAX_FILE_SIZE_BYTES) {
+        rejected.push(`"${file.name}" — exceeds ${MAX_FILE_SIZE_MB} MB limit.`);
+        return false;
+      }
+      return true;
+    });
+
+    if (files.length > slotsAvailable) {
+      rejected.push(`Only ${slotsAvailable} more file(s) allowed; extras were skipped.`);
+    }
+
+    if (rejected.length > 0) {
+      setUploadError(rejected.join(' '));
+    }
+
+    if (accepted.length === 0) {
+      e.target.value = '';
+      return;
+    }
+
     const newEvidence = await Promise.all(
-      files.map(async (file) => {
+      accepted.map(async (file) => {
         const hash = await hashFile(file);
         return { file, name: file.name, hash };
       })
     );
 
-    const existingEvidence = assessment.evidenceFiles || [];
-    onChange(stepId, item.id, { evidenceFiles: [...existingEvidence, ...newEvidence] });
+    // Deduplicate by hash
+    const existingHashes = new Set(existingEvidence.map((ev) => ev.hash));
+    const deduplicated = newEvidence.filter((ev) => {
+      if (existingHashes.has(ev.hash)) {
+        setUploadError((prev) => (prev ? prev + ` "${ev.name}" is a duplicate and was skipped.` : `"${ev.name}" is a duplicate and was skipped.`));
+        return false;
+      }
+      return true;
+    });
+
+    onChange(stepId, item.id, { evidenceFiles: [...existingEvidence, ...deduplicated] });
+    e.target.value = '';
   };
 
   const handleRemoveFile = (hashToRemove) => {
@@ -91,6 +155,7 @@ export default function AuditItem({ stepId, item, assessment, onChange }) {
       <div className="audit-item-evidence">
         <label className="evidence-label" htmlFor={`file-${stepId}-${item.id}`}>
           Upload Evidence
+          <span className="evidence-hint"> (PDF, Word, Excel, images — max {MAX_FILE_SIZE_MB} MB each, up to {MAX_FILES_PER_ITEM} files)</span>
         </label>
         <input
           type="file"
@@ -98,7 +163,18 @@ export default function AuditItem({ stepId, item, assessment, onChange }) {
           multiple
           onChange={handleFileUpload}
           className="evidence-file-input"
+          aria-describedby={uploadError ? `upload-error-${stepId}-${item.id}` : undefined}
         />
+        {uploadError && (
+          <p
+            id={`upload-error-${stepId}-${item.id}`}
+            className="upload-error"
+            role="alert"
+            style={{ color: '#dc2626', fontSize: '0.85rem', marginTop: '0.4rem' }}
+          >
+            ⚠ {uploadError}
+          </p>
+        )}
         {(assessment.evidenceFiles && assessment.evidenceFiles.length > 0) && (
           <ul className="evidence-file-list">
             {assessment.evidenceFiles.map((ev) => (
