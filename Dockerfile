@@ -6,8 +6,8 @@ WORKDIR /app
 # Copy lockfile first for layer caching
 COPY package*.json ./
 
-# Install dependencies reproducibly (fails if lockfile is out of sync)
-RUN npm ci --ignore-scripts
+# Install dependencies (npm install handles cross-platform optional deps correctly)
+RUN npm install --ignore-scripts --prefer-offline
 
 # Copy source code (node_modules excluded via .dockerignore)
 COPY . .
