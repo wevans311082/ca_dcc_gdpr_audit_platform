@@ -81,7 +81,7 @@ export default function App() {
           <span className="app-logo-icon" aria-hidden="true">🛡️</span>
           <div>
             <h1 className="app-title">DCC Level 0 GDPR Audit Platform</h1>
-            <p className="app-subtitle">Data Controller Certification — Baseline GDPR Assessment Tool</p>
+            <p className="app-subtitle">Defence Cyber Certification — Baseline GDPR Assessment Tool</p>
           </div>
         </header>
         <main className="start-screen">
@@ -157,7 +157,7 @@ export default function App() {
           <span className="app-logo-icon" aria-hidden="true">🛡️</span>
           <div>
             <h1 className="app-title">DCC Level 0 GDPR Audit Platform</h1>
-            <p className="app-subtitle">Data Controller Certification — Baseline GDPR Assessment Tool</p>
+            <p className="app-subtitle">Defence Cyber Certification — Baseline GDPR Assessment Tool</p>
           </div>
           <button className="btn btn-danger btn-sm reset-btn" onClick={handleReset}>
             New Audit
@@ -187,7 +187,7 @@ export default function App() {
         <span className="app-logo-icon" aria-hidden="true">🛡️</span>
         <div>
           <h1 className="app-title">DCC Level 0 GDPR Audit Platform</h1>
-          <p className="app-subtitle">Data Controller Certification — Baseline GDPR Assessment Tool</p>
+          <p className="app-subtitle">Defence Cyber Certification — Baseline GDPR Assessment Tool</p>
         </div>
         <button className="btn btn-danger btn-sm reset-btn" onClick={handleReset}>
           New Audit

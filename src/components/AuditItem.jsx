@@ -27,6 +27,7 @@ async function hashFile(file) {
 
 export default function AuditItem({ stepId, item, assessment, onChange }) {
   const [uploadError, setUploadError] = useState(null);
+  const [guidanceOpen, setGuidanceOpen] = useState(false);
 
   const handleStatusChange = (e) => {
     onChange(stepId, item.id, { status: e.target.value });
@@ -138,6 +139,44 @@ export default function AuditItem({ stepId, item, assessment, onChange }) {
         <p className="audit-item-example">
           <span className="example-icon" aria-hidden="true">📂</span> <strong>Example Evidence:</strong> {item.exampleEvidence}
         </p>
+      )}
+
+      {(item.whatGoodLooksLike || (item.keyChecks && item.keyChecks.length > 0)) && (
+        <div className="guidance-container">
+          <button
+            type="button"
+            className="guidance-toggle"
+            onClick={() => setGuidanceOpen((o) => !o)}
+            aria-expanded={guidanceOpen}
+          >
+            <span className="guidance-toggle-icon" aria-hidden="true">{guidanceOpen ? '▲' : '▼'}</span>
+            {guidanceOpen ? 'Hide Assessor Guidance' : 'Show Assessor Guidance'}
+          </button>
+          {guidanceOpen && (
+            <div className="guidance-panel">
+              {item.whatGoodLooksLike && (
+                <div className="guidance-section">
+                  <h4 className="guidance-section-title">
+                    <span aria-hidden="true">✅</span> What good looks like
+                  </h4>
+                  <p className="guidance-section-body">{item.whatGoodLooksLike}</p>
+                </div>
+              )}
+              {item.keyChecks && item.keyChecks.length > 0 && (
+                <div className="guidance-section">
+                  <h4 className="guidance-section-title">
+                    <span aria-hidden="true">🔍</span> Key checks for the assessor
+                  </h4>
+                  <ul className="guidance-checklist">
+                    {item.keyChecks.map((check, i) => (
+                      <li key={i} className="guidance-checklist-item">{check}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
       )}
       <div className="audit-item-notes">
         <label htmlFor={`notes-${stepId}-${item.id}`} className="notes-label">

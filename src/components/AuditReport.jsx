@@ -109,7 +109,7 @@ export default function AuditReport({ assessments, assessorName, organisationNam
           <span className="shield-icon" aria-hidden="true">🛡️</span>
           <div>
             <h1 className="report-main-title">DCC Level 0 GDPR Audit Report</h1>
-            <p className="report-subtitle">Data Controller Certification — GDPR Baseline Assessment</p>
+            <p className="report-subtitle">Defence Cyber Certification — GDPR Baseline Assessment</p>
           </div>
         </div>
         <div className="report-meta">
