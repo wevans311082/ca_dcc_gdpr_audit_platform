@@ -1,0 +1,26 @@
+# Static SPA. Traefik terminates TLS; in-image nginx only serves files.
+#   docker stack deploy -c docker-stack.yml gdpr
+
+services:
+  app:
+    image: ca_dcc_gdpr_audit_platform-app:latest
+    networks:
+      - ca_public
+    deploy:
+      placement:
+        constraints:
+          - node.hostname == caprod01
+      restart_policy:
+        condition: on-failure
+      labels:
+        - "traefik.enable=true"
+        - "traefik.docker.network=ca_public"
+        - "traefik.http.routers.gdpr.rule=Host(`gdpr.cyberask.co.uk`)"
+        - "traefik.http.routers.gdpr.entrypoints=websecure"
+        - "traefik.http.routers.gdpr.tls=true"
+        - "traefik.http.routers.gdpr.tls.certresolver=letsencrypt"
+        - "traefik.http.services.gdpr.loadbalancer.server.port=80"
+
+networks:
+  ca_public:
+    external: true
