@@ -14,7 +14,7 @@ function buildInitialAssessments(steps = getLevelConfig(0).steps) {
     initial[step.id] = {};
     step.items.forEach((item) => {
       initial[step.id][item.id] = {
-        status: 'not-assessed', notes: '', evidenceFiles: [], evidenceChecklist: [],
+        status: 'not-assessed', response: '', evidenceFiles: [], evidenceChecklist: [], notes: '',
       };
     });
   });

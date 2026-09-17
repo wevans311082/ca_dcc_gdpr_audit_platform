@@ -550,6 +550,25 @@
   margin-top: 0.25rem;
 }
 
+.audit-item-response {
+  border-top: 1px solid #e2e8f0;
+  margin-top: 1rem;
+  padding-top: 1rem;
+}
+
+.response-select {
+  max-width: 240px;
+}
+
+.model-answer {
+  background: #fff9e8;
+  border-left: 3px solid #d6b55b;
+  color: #475569;
+  font-size: 0.85rem;
+  margin-top: 0.6rem;
+  padding: 0.6rem 0.75rem;
+}
+
 .status-selector {
   flex-shrink: 0;
 }

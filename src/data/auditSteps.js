@@ -468,6 +468,8 @@ function buildOfficialSteps(level) {
     title: `Control ${controlId}`,
     description: `Assess the ${controlQuestions.length} related source question${controlQuestions.length === 1 ? '' : 's'} within this DCC control family. Record a finding and evidence against each question.`,
     items: controlQuestions.map((question) => ({
+      responseType: /^(Does|Do|Has|Have|Is|Are|Can|Will)\b/i.test(question.question) ? 'yes-no' : 'long-form',
+      modelAnswer: `Describe the organisation's current approach to ${question.question.replace(/[?!.].*$/, '').replace(/^(How|What|Which|When|Where)\s+/i, '').toLowerCase()}. Identify the responsible role, relevant systems or processes, the frequency of review, and the evidence available to support the response.`,
         id: question.id,
         label: `${question.id} (MOD ${question.modId}): ${question.question}`,
         hint: `Official source: ${question.source}, page ${question.sourcePage}. Assess the response against the agreed scope and record any qualification or limitation in the findings.`,

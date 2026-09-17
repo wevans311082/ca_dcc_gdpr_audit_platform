@@ -81,6 +81,7 @@ export default function AuditReport({ assessments, assessorName, organisationNam
         reportData.details[step.id].items[item.id] = {
           label: item.label,
           status: a.status,
+          response: a.response || '',
           notes: a.notes,
             evidenceChecklist: a.evidenceChecklist || [],
           evidence: evidenceSummary
@@ -186,6 +187,7 @@ export default function AuditReport({ assessments, assessorName, organisationNam
             <thead>
               <tr>
                 <th scope="col" className="col-check">Check</th>
+                <th scope="col" className="col-response">Applicant Response</th>
                 <th scope="col" className="col-status">Status</th>
                 <th scope="col" className="col-notes">Assessor Notes</th>
               </tr>
@@ -197,6 +199,7 @@ export default function AuditReport({ assessments, assessorName, organisationNam
                 return (
                   <tr key={item.id}>
                     <td className="col-check">{item.label}</td>
+                    <td className="col-response">{a.response || <em className="no-notes">No response recorded</em>}</td>
                     <td className="col-status">
                       <StatusBadge status={a.status} />
                     </td>

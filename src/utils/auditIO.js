@@ -20,6 +20,7 @@ export function buildCheckpoint({ assessments, assessorName, organisationName, a
           itemId,
           {
             status: assessment.status,
+            response: assessment.response || '',
             notes: assessment.notes,
             evidenceChecklist: assessment.evidenceChecklist || [],
             evidenceReferences: (assessment.evidenceFiles || []).map(({ name, hash }) => ({ name, hash })),
