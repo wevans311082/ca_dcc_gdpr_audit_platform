@@ -1,16 +1,21 @@
-import { useState } from 'react';
-import { AUDIT_STEPS } from './data/auditSteps';
+import { useRef, useState } from 'react';
+import { getLevelConfig } from './data/auditSteps';
 import WizardProgress from './components/WizardProgress';
 import WizardStep from './components/WizardStep';
 import AuditReport from './components/AuditReport';
+import ScopingWizard from './components/ScopingWizard';
+import ScopeAttestation from './components/ScopeAttestation';
+import { buildCheckpoint, validateCheckpoint } from './utils/auditIO';
 import './App.css';
 
-function buildInitialAssessments() {
+function buildInitialAssessments(steps = getLevelConfig(0).steps) {
   const initial = {};
-  AUDIT_STEPS.forEach((step) => {
+  steps.forEach((step) => {
     initial[step.id] = {};
     step.items.forEach((item) => {
-      initial[step.id][item.id] = { status: 'not-assessed', notes: '', evidenceFiles: [] };
+      initial[step.id][item.id] = {
+        status: 'not-assessed', notes: '', evidenceFiles: [], evidenceChecklist: [],
+      };
     });
   });
   return initial;
@@ -30,8 +35,17 @@ export default function App() {
   const [organisationName, setOrganisationName] = useState('');
   const [auditDate, setAuditDate] = useState(new Date().toISOString().slice(0, 10));
   const [started, setStarted] = useState(false);
+  const [showScope, setShowScope] = useState(false);
+  const [showAttestation, setShowAttestation] = useState(false);
+  const [selectedLevel, setSelectedLevel] = useState(0);
+  const [scope, setScope] = useState({});
+  const [importError, setImportError] = useState('');
+  const importInputRef = useRef(null);
 
-  const totalSteps = AUDIT_STEPS.length;
+  const levelConfig = getLevelConfig(selectedLevel);
+  const activeSteps = levelConfig.steps;
+
+  const totalSteps = activeSteps.length;
   const isLastStep = currentStep === totalSteps - 1;
 
   const handleItemChange = (stepId, itemId, updates) => {
@@ -70,7 +84,69 @@ export default function App() {
       setAssessments(buildInitialAssessments());
       setCurrentStep(0);
       setShowReport(false);
+      setShowScope(false);
+      setShowAttestation(false);
+      setSelectedLevel(0);
+      setScope({});
       setStarted(false);
+    }
+  };
+
+  const handleLevelChange = (level) => {
+    const nextLevel = getLevelConfig(level);
+    setSelectedLevel(level);
+    setAssessments(buildInitialAssessments(nextLevel.steps));
+    setCurrentStep(0);
+  };
+
+  const handleDownloadCheckpoint = () => {
+    const checkpoint = buildCheckpoint({
+      assessments, assessorName, organisationName, auditDate, scope, selectedLevel, currentStep,
+      view: showReport ? 'report' : showAttestation ? 'attestation' : showScope ? 'scope' : started ? 'audit' : 'start',
+    });
+    const blob = new Blob([JSON.stringify(checkpoint, null, 2)], { type: 'application/json' });
+    const link = document.createElement('a');
+    const safeName = organisationName.replace(/[^a-z0-9]/gi, '_').toLowerCase() || 'assessment';
+    link.href = URL.createObjectURL(blob);
+    link.download = `dcc_gdpr_${safeName}_checkpoint.json`;
+    link.click();
+    URL.revokeObjectURL(link.href);
+  };
+
+  const handleImportCheckpoint = async (event) => {
+    const [file] = event.target.files;
+    event.target.value = '';
+    if (!file) return;
+    try {
+      const checkpoint = validateCheckpoint(JSON.parse(await file.text()));
+      setAssessorName(checkpoint.metadata.assessorName || '');
+      setOrganisationName(checkpoint.metadata.organisationName || '');
+      setAuditDate(checkpoint.metadata.auditDate || new Date().toISOString().slice(0, 10));
+      setScope(checkpoint.scope);
+      setSelectedLevel(checkpoint.selectedLevel);
+      setAssessments(Object.fromEntries(
+        Object.entries(checkpoint.assessments).map(([stepId, items]) => [
+          stepId,
+          Object.fromEntries(Object.entries(items).map(([itemId, assessment]) => [
+            itemId,
+            {
+              ...assessment,
+              evidenceFiles: (assessment.evidenceReferences || []).map((reference) => ({
+                ...reference,
+                unavailable: true,
+              })),
+            },
+          ])),
+        ])
+      ));
+      setCurrentStep(Math.min(checkpoint.currentStep || 0, getLevelConfig(checkpoint.selectedLevel).steps.length - 1));
+      setStarted(checkpoint.view !== 'start');
+      setShowScope(checkpoint.view === 'scope');
+      setShowAttestation(checkpoint.view === 'attestation');
+      setShowReport(checkpoint.view === 'report');
+      setImportError('');
+    } catch (error) {
+      setImportError(error instanceof Error ? error.message : 'Unable to import this checkpoint.');
     }
   };
 
@@ -80,27 +156,27 @@ export default function App() {
         <header className="app-header">
           <span className="app-logo-icon" aria-hidden="true">🛡️</span>
           <div>
-            <h1 className="app-title">DCC Level 0 GDPR Audit Platform</h1>
-            <p className="app-subtitle">Defence Cyber Certification — Baseline GDPR Assessment Tool</p>
+            <h1 className="app-title">DCC Readiness Guide</h1>
+            <p className="app-subtitle">Defence Cyber Certification — Levels 0 to 2 Assessment Preparation</p>
           </div>
         </header>
         <main className="start-screen">
           <div className="start-card">
-            <h2 className="start-heading">Welcome to the GDPR Audit Wizard</h2>
+            <h2 className="start-heading">Welcome to DCC Assessment Preparation</h2>
             <p className="start-intro">
-              This tool guides assessors through a structured DCC Level 0 GDPR audit covering:
+              This tool supports DCC Levels 0, 1, and 2. Each level shows its official control total and the individual source questions used to assess those controls.
             </p>
             <ul className="start-list">
-              {AUDIT_STEPS.map((step) => (
-                <li key={step.id}>
-                  <span aria-hidden="true">✅</span> {step.title}
+              {[0, 1, 2, 3].map((level) => (
+                <li key={level}>
+                  <span aria-hidden="true">✅</span> {getLevelConfig(level).title}: {getLevelConfig(level).controlCount} official controls; {getLevelConfig(level).available ? `${getLevelConfig(level).steps.flatMap((step) => step.items).length} source questions` : 'question bank pending'}
                 </li>
               ))}
             </ul>
             <p className="start-note">
-              <strong>Note:</strong> Completing this assessment indicates that the applicant has
-              suitable policies and evidence at a baseline level. It does not constitute a legal
-              guarantee of full GDPR compliance.
+              <strong>Note:</strong> This is readiness tooling based on the supplied DCC Applicant Guides.
+              It supports preparation and evidence gathering; it does not award DCC certification or
+              constitute legal advice.
             </p>
 
             <div className="start-form">
@@ -138,14 +214,58 @@ export default function App() {
               </div>
             </div>
 
-            <button
-              className="btn btn-primary btn-large"
-              onClick={() => setStarted(true)}
-            >
-              Begin Audit →
-            </button>
+            <div className="start-actions">
+              <button className="btn btn-secondary" onClick={() => importInputRef.current?.click()}>Import JSON</button>
+              <button className="btn btn-primary btn-large" onClick={() => { setStarted(true); setShowScope(true); }}>
+                Define Scope
+              </button>
+            </div>
+            {importError && <p className="form-error" role="alert">{importError}</p>}
+            <input ref={importInputRef} type="file" accept="application/json" className="visually-hidden" onChange={handleImportCheckpoint} />
           </div>
         </main>
+      </div>
+    );
+  }
+
+  if (showScope) {
+    return (
+      <div className="app-shell">
+        <header className="app-header">
+          <span className="app-logo-icon" aria-hidden="true">🛡️</span>
+          <div><h1 className="app-title">DCC GDPR Readiness Guide</h1><p className="app-subtitle">Scope agreement and assessment preparation</p></div>
+          <button className="btn btn-secondary btn-sm reset-btn" onClick={handleDownloadCheckpoint}>Save JSON</button>
+        </header>
+        <ScopingWizard
+          scope={scope}
+          selectedLevel={selectedLevel}
+          onScopeChange={(field, value) => setScope((previous) => ({ ...previous, [field]: value }))}
+          onLevelChange={handleLevelChange}
+          onBack={() => { setShowScope(false); setStarted(false); }}
+          onContinue={() => { setShowScope(false); setShowAttestation(true); }}
+          onSkip={() => setShowScope(false)}
+        />
+      </div>
+    );
+  }
+
+  if (showAttestation) {
+    return (
+      <div className="app-shell">
+        <header className="app-header no-print">
+          <span className="app-logo-icon" aria-hidden="true">🛡️</span>
+          <div><h1 className="app-title">DCC GDPR Readiness Guide</h1><p className="app-subtitle">Scope agreement and assessment preparation</p></div>
+          <button className="btn btn-secondary btn-sm reset-btn" onClick={handleDownloadCheckpoint}>Save JSON</button>
+        </header>
+        <ScopeAttestation
+          organisationName={organisationName}
+          assessorName={assessorName}
+          auditDate={auditDate}
+          scope={scope}
+          selectedLevel={selectedLevel}
+          onBack={() => { setShowAttestation(false); setShowScope(true); }}
+          onStartAudit={() => setShowAttestation(false)}
+        />
       </div>
     );
   }
@@ -156,8 +276,8 @@ export default function App() {
         <header className="app-header no-print">
           <span className="app-logo-icon" aria-hidden="true">🛡️</span>
           <div>
-            <h1 className="app-title">DCC Level 0 GDPR Audit Platform</h1>
-            <p className="app-subtitle">Defence Cyber Certification — Baseline GDPR Assessment Tool</p>
+            <h1 className="app-title">DCC GDPR Readiness Findings</h1>
+            <p className="app-subtitle">{levelConfig.title} — {levelConfig.subtitle}</p>
           </div>
           <button className="btn btn-danger btn-sm reset-btn" onClick={handleReset}>
             New Audit
@@ -169,6 +289,9 @@ export default function App() {
             assessorName={assessorName}
             organisationName={organisationName}
             auditDate={auditDate}
+            steps={activeSteps}
+            levelConfig={levelConfig}
+            scope={scope}
             onBack={() => {
               setShowReport(false);
               setCurrentStep(totalSteps - 1);
@@ -179,16 +302,17 @@ export default function App() {
     );
   }
 
-  const step = AUDIT_STEPS[currentStep];
+  const step = activeSteps[currentStep];
 
   return (
     <div className="app-shell">
       <header className="app-header">
         <span className="app-logo-icon" aria-hidden="true">🛡️</span>
         <div>
-          <h1 className="app-title">DCC Level 0 GDPR Audit Platform</h1>
-          <p className="app-subtitle">Defence Cyber Certification — Baseline GDPR Assessment Tool</p>
+          <h1 className="app-title">DCC GDPR Readiness Guide</h1>
+          <p className="app-subtitle">{levelConfig.title} — {levelConfig.subtitle}</p>
         </div>
+        <button className="btn btn-secondary btn-sm" onClick={handleDownloadCheckpoint}>Save JSON</button>
         <button className="btn btn-danger btn-sm reset-btn" onClick={handleReset}>
           New Audit
         </button>
@@ -200,7 +324,11 @@ export default function App() {
         {auditDate && <span><strong>Date:</strong> {formatDate(auditDate)}</span>}
       </div>
 
-      <WizardProgress currentStep={currentStep} onStepClick={handleStepClick} />
+      <WizardProgress
+        steps={activeSteps}
+        currentStep={currentStep}
+        onStepClick={handleStepClick}
+      />
 
       <main className="wizard-main">
         <WizardStep

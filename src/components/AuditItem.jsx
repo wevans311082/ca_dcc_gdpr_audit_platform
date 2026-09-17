@@ -37,6 +37,12 @@ export default function AuditItem({ stepId, item, assessment, onChange }) {
     onChange(stepId, item.id, { notes: e.target.value });
   };
 
+  const handleChecklistChange = (index) => {
+    const evidenceChecklist = [...(assessment.evidenceChecklist || [])];
+    evidenceChecklist[index] = !evidenceChecklist[index];
+    onChange(stepId, item.id, { evidenceChecklist });
+  };
+
   const handleFileUpload = async (e) => {
     setUploadError(null);
     const files = Array.from(e.target.files);
@@ -167,9 +173,18 @@ export default function AuditItem({ stepId, item, assessment, onChange }) {
                   <h4 className="guidance-section-title">
                     <span aria-hidden="true">🔍</span> Key checks for the assessor
                   </h4>
-                  <ul className="guidance-checklist">
+                  <ul className="guidance-checklist" aria-label="Evidence checks">
                     {item.keyChecks.map((check, i) => (
-                      <li key={i} className="guidance-checklist-item">{check}</li>
+                      <li key={check} className="guidance-checklist-item">
+                        <label className="evidence-check-label">
+                          <input
+                            type="checkbox"
+                            checked={Boolean(assessment.evidenceChecklist?.[i])}
+                            onChange={() => handleChecklistChange(i)}
+                          />
+                          <span>{check}</span>
+                        </label>
+                      </li>
                     ))}
                   </ul>
                 </div>
@@ -223,6 +238,7 @@ export default function AuditItem({ stepId, item, assessment, onChange }) {
                   <span className="evidence-file-hash" title={ev.hash}>
                     SHA-256: {ev.hash.substring(0, 16)}...
                   </span>
+                  {ev.unavailable && <span className="evidence-file-unavailable">Re-upload required after import</span>}
                 </div>
                 <button
                   type="button"

@@ -1,4 +1,4 @@
-import { AUDIT_STEPS, STATUS_OPTIONS } from '../data/auditSteps';
+import { STATUS_OPTIONS } from '../data/auditSteps';
 import JSZip from 'jszip';
 import { saveAs } from 'file-saver';
 
@@ -14,10 +14,10 @@ function StatusBadge({ status }) {
   );
 }
 
-function computeSummary(assessments) {
+function computeSummary(steps, assessments) {
   const counts = { compliant: 0, partial: 0, 'non-compliant': 0, 'not-applicable': 0, 'not-assessed': 0 };
   let total = 0;
-  AUDIT_STEPS.forEach((step) => {
+  steps.forEach((step) => {
     step.items.forEach((item) => {
       const a = assessments[step.id]?.[item.id];
       const status = a?.status || 'not-assessed';
@@ -35,13 +35,13 @@ function overallOutcome(counts) {
   return { label: 'Compliant', color: '#16a34a', recommendation: 'The applicant appears to have suitable baseline policies and evidence in place. Good to proceed with DCC certification submission.' };
 }
 
-export default function AuditReport({ assessments, assessorName, organisationName, auditDate, onBack }) {
-  const { counts, total } = computeSummary(assessments);
+export default function AuditReport({ assessments, assessorName, organisationName, auditDate, steps, levelConfig, scope, onBack }) {
+  const { counts, total } = computeSummary(steps, assessments);
   const outcome = overallOutcome(counts);
 
   // Extract non-compliant / partially compliant items for gap analysis
   const gapAnalysisItems = [];
-  AUDIT_STEPS.forEach((step) => {
+  steps.forEach((step) => {
     step.items.forEach((item) => {
       const a = assessments[step.id]?.[item.id];
       if (a && (a.status === 'non-compliant' || a.status === 'partial')) {
@@ -68,7 +68,7 @@ export default function AuditReport({ assessments, assessorName, organisationNam
       details: {},
     };
 
-    AUDIT_STEPS.forEach((step) => {
+    steps.forEach((step) => {
       reportData.details[step.id] = { title: step.title, items: {} };
       step.items.forEach((item) => {
         const a = assessments[step.id]?.[item.id] || { status: 'not-assessed', notes: '', evidenceFiles: [] };
@@ -82,10 +82,11 @@ export default function AuditReport({ assessments, assessorName, organisationNam
           label: item.label,
           status: a.status,
           notes: a.notes,
+            evidenceChecklist: a.evidenceChecklist || [],
           evidence: evidenceSummary
         };
 
-        (a.evidenceFiles || []).forEach(ev => {
+        (a.evidenceFiles || []).filter((ev) => ev.file).forEach(ev => {
           // Store the file in the zip under the evidence folder
           // Using hash to prevent naming collisions
           const fileName = `${ev.hash.substring(0, 8)}_${ev.name}`;
@@ -108,14 +109,15 @@ export default function AuditReport({ assessments, assessorName, organisationNam
         <div className="report-logo">
           <span className="shield-icon" aria-hidden="true">🛡️</span>
           <div>
-            <h1 className="report-main-title">DCC Level 0 GDPR Audit Report</h1>
-            <p className="report-subtitle">Defence Cyber Certification — GDPR Baseline Assessment</p>
+            <h1 className="report-main-title">DCC GDPR Readiness Findings Report</h1>
+            <p className="report-subtitle">{levelConfig.title} — {levelConfig.subtitle}</p>
           </div>
         </div>
         <div className="report-meta">
           {organisationName && <p><strong>Organisation:</strong> {organisationName}</p>}
           {assessorName && <p><strong>Assessor:</strong> {assessorName}</p>}
           {auditDate && <p><strong>Audit Date:</strong> {auditDate}</p>}
+          {scope?.inScopeDescription && <p><strong>Scope:</strong> {scope.inScopeDescription}</p>}
           <p>
             <strong>Overall Outcome:</strong>{' '}
             <span className="report-status-badge" style={{ backgroundColor: outcome.color }}>
@@ -177,7 +179,7 @@ export default function AuditReport({ assessments, assessorName, organisationNam
         </section>
       )}
 
-      {AUDIT_STEPS.map((step) => (
+      {steps.map((step) => (
         <section key={step.id} className="report-step-section" aria-labelledby={`report-step-${step.id}`}>
           <h2 id={`report-step-${step.id}`} className="report-section-title">{step.title}</h2>
           <table className="report-table" aria-label={`${step.title} findings`}>
@@ -190,14 +192,18 @@ export default function AuditReport({ assessments, assessorName, organisationNam
             </thead>
             <tbody>
               {step.items.map((item) => {
-                const a = assessments[step.id]?.[item.id] || { status: 'not-assessed', notes: '' };
+                const a = assessments[step.id]?.[item.id] || { status: 'not-assessed', notes: '', evidenceChecklist: [] };
+                const completedChecks = (a.evidenceChecklist || []).filter(Boolean).length;
                 return (
                   <tr key={item.id}>
                     <td className="col-check">{item.label}</td>
                     <td className="col-status">
                       <StatusBadge status={a.status} />
                     </td>
-                    <td className="col-notes">{a.notes || <em className="no-notes">No notes recorded</em>}</td>
+                    <td className="col-notes">
+                      {a.notes || <em className="no-notes">No notes recorded</em>}
+                      {item.keyChecks?.length > 0 && <p className="evidence-check-summary">Evidence checks: {completedChecks} of {item.keyChecks.length}</p>}
+                    </td>
                   </tr>
                 );
               })}
@@ -208,7 +214,7 @@ export default function AuditReport({ assessments, assessorName, organisationNam
 
       <footer className="report-footer">
         <p>
-          <strong>Disclaimer:</strong> This DCC Level 0 GDPR audit report indicates that the applicant has
+          <strong>Disclaimer:</strong> This DCC GDPR readiness findings report indicates that the applicant has
           suitable policies and evidence in place at the time of assessment. It does not constitute a legal
           guarantee of full GDPR compliance.
         </p>

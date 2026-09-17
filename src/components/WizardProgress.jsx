@@ -1,10 +1,8 @@
-import { AUDIT_STEPS } from '../data/auditSteps';
-
-export default function WizardProgress({ currentStep, onStepClick }) {
+export default function WizardProgress({ steps, currentStep, onStepClick }) {
   return (
     <nav className="wizard-progress" aria-label="Audit progress">
       <ol className="progress-list">
-        {AUDIT_STEPS.map((step, index) => {
+        {steps.map((step, index) => {
           const isCompleted = index < currentStep;
           const isCurrent = index === currentStep;
           return (
@@ -23,7 +21,7 @@ export default function WizardProgress({ currentStep, onStepClick }) {
                 </span>
                 <span className="progress-label">{step.title}</span>
               </button>
-              {index < AUDIT_STEPS.length - 1 && (
+              {index < steps.length - 1 && (
                 <div className={`progress-connector ${isCompleted ? 'completed' : ''}`} aria-hidden="true" />
               )}
             </li>

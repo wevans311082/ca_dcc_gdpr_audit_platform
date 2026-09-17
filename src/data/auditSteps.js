@@ -1,3 +1,5 @@
+import { DCC_QUESTION_BANK } from './dccQuestionBank';
+
 /**
  * DCC Level 0 GDPR Audit - Wizard Step Definitions
  *
@@ -451,3 +453,106 @@ export const STATUS_OPTIONS = [
   { value: 'non-compliant', label: 'Non-Compliant', color: '#dc2626' },
   { value: 'not-applicable', label: 'Not Applicable', color: '#2563eb' },
 ];
+
+export const CATALOGUE_VERSION = '1.0.0';
+
+const OBJECTIVE_SECTIONS = [
+  { id: 'core', title: 'Core Requirements', description: 'Cyber Essentials and baseline DCC requirements.', test: (controlId) => Number(controlId) < 1000 },
+  { id: 'objective-a', title: 'Objective A: Managing Security Risk', description: 'Governance, risk, assets, supply chain, and physical security.', test: (controlId) => Number(controlId) >= 1000 && Number(controlId) < 2000 },
+  { id: 'objective-b', title: 'Objective B: Protecting Against Cyber Attack', description: 'Access control, data security, system security, resilience, and personnel security.', test: (controlId) => Number(controlId) >= 2000 && Number(controlId) < 3000 },
+  { id: 'objective-c', title: 'Objective C: Detecting Cyber Security Events', description: 'Monitoring, logging, and security-event detection.', test: (controlId) => Number(controlId) >= 3000 && Number(controlId) < 4000 },
+  { id: 'objective-d', title: 'Objective D: Minimising Impact', description: 'Incident management, response, and recovery.', test: (controlId) => Number(controlId) >= 4000 && Number(controlId) < 5000 },
+  { id: 'objective-e', title: 'Objective E: Assurance', description: 'Assurance activity and continuous improvement.', test: (controlId) => Number(controlId) >= 5000 },
+];
+
+function buildOfficialSteps(level) {
+  const questions = DCC_QUESTION_BANK[level] || [];
+  return OBJECTIVE_SECTIONS.map((section) => ({
+    ...section,
+    items: questions
+      .filter((question) => section.test(question.controlId))
+      .map((question) => ({
+        id: question.id,
+        label: `${question.id} (MOD ${question.modId}): ${question.question}`,
+        hint: `Source: ${question.source}, page ${question.sourcePage}.`,
+        exampleEvidence: question.expectedEvidence,
+        keyChecks: ['Evidence has been reviewed and is applicable to the agreed assessment scope.'],
+      })),
+  })).filter((section) => section.items.length > 0);
+}
+
+export const LEVEL_CONFIGS = {
+  0: {
+    id: 0,
+    title: 'Level 0',
+    subtitle: 'Baseline',
+    controlCount: 3,
+    source: 'DCC Applicant Guide - L0 - V.1.3.pdf',
+    available: true,
+    steps: buildOfficialSteps(0),
+  },
+  1: {
+    id: 1,
+    title: 'Level 1',
+    subtitle: 'Applicant Guide v1.3',
+    controlCount: 101,
+    source: 'DCC Applicant Guide - L1 - V.1.3.pdf',
+    available: true,
+    steps: buildOfficialSteps(1),
+  },
+  2: {
+    id: 2,
+    title: 'Level 2',
+    subtitle: 'Applicant Guide v1.3',
+    controlCount: 139,
+    source: 'DCC Applicant Guide - L2 - V.1.3.pdf',
+    available: true,
+    steps: buildOfficialSteps(2),
+  },
+  3: {
+    id: 3,
+    title: 'Level 3',
+    subtitle: 'Applicant Guide v1.3',
+    controlCount: 144,
+    source: 'DCC Applicant Guide - L3 - V.1.3.pdf',
+    available: false,
+    steps: [],
+  },
+};
+
+export const SCOPING_FIELDS = [
+  {
+    id: 'inScopeDescription',
+    label: 'In-scope service, product, or business activity',
+    help: 'Describe precisely what the assessment covers.',
+    required: true,
+  },
+  {
+    id: 'inScopeSystems',
+    label: 'In-scope systems and information assets',
+    help: 'List platforms, applications, networks, and repositories in scope.',
+    required: true,
+  },
+  {
+    id: 'locations',
+    label: 'In-scope locations and delivery model',
+    help: 'Include offices, hosted environments, remote working, and third parties.',
+    required: true,
+  },
+  {
+    id: 'exclusions',
+    label: 'Explicit exclusions',
+    help: 'State exclusions and the reason for each. Enter “None” where applicable.',
+    required: true,
+  },
+  {
+    id: 'scopeRationale',
+    label: 'Scope rationale',
+    help: 'Record the reason this boundary accurately represents the assessment scope.',
+    required: true,
+  },
+];
+
+export function getLevelConfig(level) {
+  return LEVEL_CONFIGS[level] || LEVEL_CONFIGS[0];
+}
