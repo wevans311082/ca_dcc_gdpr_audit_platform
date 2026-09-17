@@ -1,4 +1,20 @@
 export default function WizardProgress({ steps, currentStep, onStepClick }) {
+  if (steps.length > 20) {
+    const current = steps[currentStep];
+    const progress = ((currentStep + 1) / steps.length) * 100;
+    return (
+      <nav className="wizard-progress wizard-progress-compact" aria-label="Audit progress">
+        <div className="compact-progress-copy">
+          <span>Control family {currentStep + 1} of {steps.length}</span>
+          <strong>{current.title}</strong>
+        </div>
+        <div className="compact-progress-track" aria-hidden="true">
+          <div className="compact-progress-value" style={{ width: `${progress}%` }} />
+        </div>
+      </nav>
+    );
+  }
+
   return (
     <nav className="wizard-progress" aria-label="Audit progress">
       <ol className="progress-list">

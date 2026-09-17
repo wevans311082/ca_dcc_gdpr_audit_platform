@@ -16,7 +16,7 @@ export default function WizardStep({ step, stepAssessments, onItemChange }) {
             key={item.id}
             stepId={step.id}
             item={item}
-            assessment={stepAssessments[item.id] || { status: 'not-assessed', notes: '' }}
+            assessment={stepAssessments?.[item.id] || { status: 'not-assessed', notes: '', evidenceFiles: [], evidenceChecklist: [] }}
             onChange={onItemChange}
           />
         ))}

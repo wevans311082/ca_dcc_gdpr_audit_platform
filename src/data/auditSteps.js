@@ -456,29 +456,32 @@ export const STATUS_OPTIONS = [
 
 export const CATALOGUE_VERSION = '1.0.0';
 
-const OBJECTIVE_SECTIONS = [
-  { id: 'core', title: 'Core Requirements', description: 'Cyber Essentials and baseline DCC requirements.', test: (controlId) => Number(controlId) < 1000 },
-  { id: 'objective-a', title: 'Objective A: Managing Security Risk', description: 'Governance, risk, assets, supply chain, and physical security.', test: (controlId) => Number(controlId) >= 1000 && Number(controlId) < 2000 },
-  { id: 'objective-b', title: 'Objective B: Protecting Against Cyber Attack', description: 'Access control, data security, system security, resilience, and personnel security.', test: (controlId) => Number(controlId) >= 2000 && Number(controlId) < 3000 },
-  { id: 'objective-c', title: 'Objective C: Detecting Cyber Security Events', description: 'Monitoring, logging, and security-event detection.', test: (controlId) => Number(controlId) >= 3000 && Number(controlId) < 4000 },
-  { id: 'objective-d', title: 'Objective D: Minimising Impact', description: 'Incident management, response, and recovery.', test: (controlId) => Number(controlId) >= 4000 && Number(controlId) < 5000 },
-  { id: 'objective-e', title: 'Objective E: Assurance', description: 'Assurance activity and continuous improvement.', test: (controlId) => Number(controlId) >= 5000 },
-];
-
 function buildOfficialSteps(level) {
   const questions = DCC_QUESTION_BANK[level] || [];
-  return OBJECTIVE_SECTIONS.map((section) => ({
-    ...section,
-    items: questions
-      .filter((question) => section.test(question.controlId))
-      .map((question) => ({
+  const questionsByControl = questions.reduce((groups, question) => {
+    groups[question.controlId] = [...(groups[question.controlId] || []), question];
+    return groups;
+  }, {});
+
+  return Object.entries(questionsByControl).map(([controlId, controlQuestions]) => ({
+    id: `control-${controlId}`,
+    title: `Control ${controlId}`,
+    description: `Assess the ${controlQuestions.length} related source question${controlQuestions.length === 1 ? '' : 's'} within this DCC control family. Record a finding and evidence against each question.`,
+    items: controlQuestions.map((question) => ({
         id: question.id,
         label: `${question.id} (MOD ${question.modId}): ${question.question}`,
-        hint: `Source: ${question.source}, page ${question.sourcePage}.`,
+        hint: `Official source: ${question.source}, page ${question.sourcePage}. Assess the response against the agreed scope and record any qualification or limitation in the findings.`,
         exampleEvidence: question.expectedEvidence,
-        keyChecks: ['Evidence has been reviewed and is applicable to the agreed assessment scope.'],
+        whatGoodLooksLike: `The applicant provides a clear, scope-relevant response supported by current, retrievable evidence. The evidence demonstrates the control is operating in practice, not merely documented as an intention.`,
+        keyChecks: [
+          'Confirm the applicant response answers the precise question asked, including any listed conditions or choices.',
+          'Review the expected evidence named in the Applicant Guide and record the specific document, system, or interview evidence examined.',
+          'Confirm the evidence applies to the agreed assessment scope, including relevant people, systems, locations, and suppliers.',
+          'Check that the evidence is current and shows the control operates in practice, not only that a policy or plan exists.',
+          'Record material gaps, exceptions, compensating controls, and any follow-up evidence needed before assigning the final status.',
+        ],
       })),
-  })).filter((section) => section.items.length > 0);
+  }));
 }
 
 export const LEVEL_CONFIGS = {
