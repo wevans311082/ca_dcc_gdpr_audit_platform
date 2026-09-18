@@ -519,6 +519,35 @@ function guidanceForControl(controlId) {
   return CONTROL_GUIDANCE.find((profile) => profile.test(controlId));
 }
 
+const EVIDENCE_DOCUMENT_RULES = [
+  { test: /cyber essentials|\bCE\+?\b/i, documents: ['Cyber Essentials Certificate or Cyber Essentials Plus Certificate', 'Cyber Essentials self-assessment questionnaire or CE+ assessment report', 'DCC-to-Cyber Essentials scope diagram'] },
+  { test: /GDPR|personal data|privacy|DPIA|data subject|consent|erasure|deletion/i, documents: ['Data Protection Policy', 'Privacy Notice', 'Records of Processing Activities (RoPA)', 'DPIA Procedure and completed DPIA or screening record', 'ICO Registration Certificate or documented registration exemption', 'Data Subject Rights / DSAR and Erasure Request Log'] },
+  { test: /risk|threat|impact|resilien/i, documents: ['Risk Management Policy', 'Information Security Risk Register', 'Risk Treatment Plan', 'Business Impact Analysis'] },
+  { test: /policy|procedure|standard/i, documents: ['Current approved policy or procedure for the stated control', 'Policy approval record and review history', 'Staff acknowledgement or distribution record'] },
+  { test: /asset|inventory|hardware|software/i, documents: ['Asset Management Policy', 'Hardware Asset Inventory', 'Software Asset Register'] },
+  { test: /access|account|password|privileged|authentication|MFA|identity/i, documents: ['Access Control Policy', 'Joiner, Mover, Leaver Procedure', 'User Access Review Report', 'MFA or privileged-access configuration evidence'] },
+  { test: /supplier|third party|contract|processor/i, documents: ['Supplier Security Policy', 'Supplier Due Diligence Assessment', 'Signed contract or Data Processing Agreement'] },
+  { test: /backup|recovery|continuity|disaster/i, documents: ['Business Continuity and Disaster Recovery Plan', 'Backup Configuration or Job Report', 'Recovery Test Report'] },
+  { test: /vulnerab|patch|malware|penetration|configuration/i, documents: ['Vulnerability and Patch Management Policy', 'Vulnerability Scan or Penetration Test Report', 'Patch Compliance Report', 'Remediation Tracker'] },
+  { test: /incident|log|monitor|alert|event/i, documents: ['Security Incident Management Plan', 'Security Incident Register', 'Logging and Monitoring Standard', 'Incident Exercise or Post-Incident Review'] },
+  { test: /training|awareness|personnel|staff|acceptable use/i, documents: ['Acceptable Use Policy', 'Security Awareness and Training Plan', 'Training Completion Report', 'Personnel Screening or Onboarding Record'] },
+  { test: /encrypt|cryptograph|key|transfer|removable media|disposal/i, documents: ['Data Classification and Handling Policy', 'Encryption Standard and Key Management Procedure', 'Secure Disposal or Destruction Certificate', 'Data Transfer Configuration or Record'] },
+];
+
+function evidenceRequestsForQuestion(question) {
+  const searchableText = `${question.question} ${question.expectedEvidence}`;
+  const matchingDocuments = EVIDENCE_DOCUMENT_RULES
+    .filter((rule) => rule.test.test(searchableText))
+    .flatMap((rule) => rule.documents);
+  const guidance = guidanceForControl(question.controlId);
+  const documents = [...new Set([...matchingDocuments, ...(guidance?.documents || [])])];
+
+  return {
+    officialExpectedEvidence: question.expectedEvidence,
+    documents: documents.length > 0 ? documents : ['Control-specific policy, procedure, configuration record, or operational evidence demonstrating the stated requirement'],
+  };
+}
+
 function buildOfficialSteps(level) {
   const questions = DCC_QUESTION_BANK[level] || [];
   const questionsByControl = questions.reduce((groups, question) => {
@@ -534,9 +563,9 @@ function buildOfficialSteps(level) {
         ...(() => {
           const guidance = guidanceForControl(question.controlId);
           return {
-            documentExamples: guidance.documents,
-            whatGoodLooksLike: guidance.good,
-            keyChecks: guidance.checks,
+            documentExamples: guidance?.documents || [],
+            whatGoodLooksLike: guidance?.good,
+            keyChecks: guidance?.checks || [],
           };
         })(),
       responseType: /^(Does|Do|Has|Have|Is|Are|Can|Will)\b/i.test(question.question) ? 'yes-no' : 'long-form',
@@ -545,6 +574,7 @@ function buildOfficialSteps(level) {
         label: `${question.id} (MOD ${question.modId}): ${question.question}`,
         hint: `Official source: ${question.source}, page ${question.sourcePage}. Assess the response against the agreed scope and record any qualification or limitation in the findings.`,
         exampleEvidence: question.expectedEvidence,
+        evidenceRequest: evidenceRequestsForQuestion(question),
         frameworkHints: frameworkHints(question.controlId),
       })),
   }));
