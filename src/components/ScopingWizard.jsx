@@ -29,8 +29,6 @@ export default function ScopingWizard({ scope, selectedLevel, onScopeChange, onL
             <p className="form-help">Source: {selectedConfig.source}</p>
           </div>
 
-          <EvidencePack levelConfig={selectedConfig} />
-
           {SCOPING_FIELDS.map((field) => (
             <div className="form-group" key={field.id}>
               <label className="form-label" htmlFor={`scope-${field.id}`}>{field.label}</label>
@@ -45,6 +43,8 @@ export default function ScopingWizard({ scope, selectedLevel, onScopeChange, onL
               <p id={`scope-help-${field.id}`} className="form-help">{field.help}</p>
             </div>
           ))}
+
+          <EvidencePack levelConfig={selectedConfig} />
         </div>
 
         <div className="wizard-nav">

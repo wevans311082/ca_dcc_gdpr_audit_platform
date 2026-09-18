@@ -3,8 +3,14 @@ import { STATUS_OPTIONS } from '../data/auditSteps';
 
 export default function AuditItem({ stepId, item, assessment, certifications, onChange }) {
   const [guidanceOpen, setGuidanceOpen] = useState(false);
+  const [statusError, setStatusError] = useState('');
 
   const handleStatusChange = (e) => {
+    if (e.target.value === 'compliant' && !assessment.response?.trim()) {
+      setStatusError('Record an applicant response before marking this question compliant.');
+      return;
+    }
+    setStatusError('');
     onChange(stepId, item.id, { status: e.target.value });
   };
 
@@ -13,6 +19,7 @@ export default function AuditItem({ stepId, item, assessment, certifications, on
   };
 
   const handleResponseChange = (e) => {
+    setStatusError('');
     onChange(stepId, item.id, { response: e.target.value });
   };
 
@@ -45,6 +52,7 @@ export default function AuditItem({ stepId, item, assessment, certifications, on
               </option>
             ))}
           </select>
+          {statusError && <p className="status-error" role="alert">{statusError}</p>}
         </div>
       </div>
       {item.hint && (
@@ -56,6 +64,12 @@ export default function AuditItem({ stepId, item, assessment, certifications, on
         <p className="audit-item-example">
           <span className="example-icon" aria-hidden="true">📂</span> <strong>Example Evidence:</strong> {item.exampleEvidence}
         </p>
+      )}
+      {item.documentExamples?.length > 0 && (
+        <section className="document-examples" aria-label="Useful document examples">
+          <strong>Useful documents to request</strong>
+          <ul>{item.documentExamples.map((document) => <li key={document}>{document}</li>)}</ul>
+        </section>
       )}
       {item.frameworkHints?.length > 0 && certifications?.some((certification) => certification === 'iso27001' || certification === 'cyberEssentials' || certification === 'cyberEssentialsPlus') && (
         <div className="framework-hints" aria-label="Potential existing evidence coverage">
@@ -69,16 +83,11 @@ export default function AuditItem({ stepId, item, assessment, certifications, on
       <div className="audit-item-response">
         <label htmlFor={`response-${stepId}-${item.id}`} className="notes-label">Applicant Response</label>
         {item.responseType === 'yes-no' ? (
-          <select
-            id={`response-${stepId}-${item.id}`}
-            value={assessment.response || ''}
-            onChange={handleResponseChange}
-            className="form-input response-select"
-          >
-            <option value="">Select response</option>
-            <option value="yes">Yes</option>
-            <option value="no">No</option>
-          </select>
+          <div className="yes-no-response" role="group" aria-label={`Applicant response for ${item.label}`}>
+            <button type="button" className={`response-button response-yes ${assessment.response === 'yes' ? 'selected' : ''}`} onClick={() => onChange(stepId, item.id, { response: 'yes' })}>Yes</button>
+            <button type="button" className={`response-button response-no ${assessment.response === 'no' ? 'selected' : ''}`} onClick={() => onChange(stepId, item.id, { response: 'no' })}>No</button>
+            {assessment.response && <button type="button" className="response-clear" onClick={() => onChange(stepId, item.id, { response: '' })}>Clear</button>}
+          </div>
         ) : (
           <>
             <textarea
@@ -140,7 +149,7 @@ export default function AuditItem({ stepId, item, assessment, certifications, on
           )}
         </div>
       )}
-      <div className="audit-item-notes">
+      <div className="audit-item-notes assessor-notes">
         <label htmlFor={`notes-${stepId}-${item.id}`} className="notes-label">
           Assessor Notes
         </label>

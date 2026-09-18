@@ -505,6 +505,20 @@ function frameworkHints(controlId) {
   return hints;
 }
 
+const CONTROL_GUIDANCE = [
+  { test: (id) => id === '2314', documents: ['ICO registration certificate, where required', 'Data Protection Policy', 'Privacy Notice', 'Records of Processing Activities (RoPA)', 'DPIA procedure, DPIA screening records, and completed DPIAs'], checks: ['Confirm the ICO registration position is documented and current, where registration is required.', 'Review the Data Protection Policy and Privacy Notice for UK GDPR/DPA 2018 references, ownership, and review dates.', 'Test that the RoPA identifies purposes, lawful bases, retention, data sharing, and responsible owners.', 'Confirm DPIA screening occurs before high-risk processing and completed DPIAs record mitigations and approval.', 'Check a sample of data-subject requests, consent records, breach register, and remediation actions where applicable.'], good: 'The organisation demonstrates a living UK GDPR compliance programme: current policies and notices, a maintained data inventory, proportionate DPIA screening, and operational records that show privacy rights and incidents are handled in practice.' },
+  { test: (id) => Number(id) < 2000, documents: ['Information Security Policy', 'ISMS scope and Statement of Applicability, where ISO 27001:2022 certified', 'Risk Management Policy and risk register', 'Asset Management Policy and asset inventory', 'Supplier Security Policy, supplier due diligence, and contracts'], checks: ['Identify the policy owner, approval route, and latest review date.', 'Trace the stated requirement to a current operational record or sample.', 'Check responsibilities, escalation routes, and risk ownership are defined.', 'Confirm the evidence covers the assessed service boundary and relevant suppliers.'], good: 'Governance is owned, current, and demonstrably applied through defined accountabilities, risk decisions, asset records, and supplier controls.' },
+  { test: (id) => Number(id) >= 2000 && Number(id) < 2300, documents: ['Access Control Policy', 'Identity and Access Management procedure', 'Privileged Access Management records', 'Joiner, Mover, Leaver procedure', 'MFA configuration evidence and access review records'], checks: ['Verify access is approved, role-based, and reviewed at a defined frequency.', 'Inspect a sample of standard, privileged, service, and leaver accounts.', 'Confirm MFA and password requirements are technically enforced where required.', 'Look for exceptions, compensating controls, and overdue access reviews.'], good: 'Access is authorised, least-privilege based, regularly reviewed, and supported by technical enforcement with auditable exceptions.' },
+  { test: (id) => Number(id) >= 2300 && Number(id) < 2400, documents: ['Data Classification and Handling Policy', 'Encryption Standard and key-management procedure', 'Data flow diagrams and retention schedule', 'Removable Media Policy', 'Secure Disposal certificates or destruction records'], checks: ['Identify the data classification and handling rule relevant to the assessed information.', 'Inspect the technical configuration or operational record rather than policy alone.', 'Confirm encryption, transfer, retention, and disposal requirements are evidenced.', 'Check third-party handling and data sharing are included in scope.'], good: 'Information is classified, handled, transferred, retained, and destroyed under documented controls that are evidenced in the operating environment.' },
+  { test: (id) => Number(id) >= 2400 && Number(id) < 2600, documents: ['Secure Configuration Standard', 'Vulnerability and Patch Management Policy', 'Change Management records', 'Anti-malware console reports', 'Penetration test report and remediation tracker', 'Business Continuity and Disaster Recovery test results'], checks: ['Compare the approved baseline to a representative live configuration.', 'Review recent vulnerability, patch, and change records for timeliness and approvals.', 'Confirm security tooling is active, monitored, and exceptions are risk accepted.', 'Test that resilience or recovery evidence relates to the in-scope service.'], good: 'Technical safeguards are configured to an approved baseline, actively monitored, promptly maintained, and tested for resilience.' },
+  { test: (id) => Number(id) >= 2600 && Number(id) < 3000, documents: ['Acceptable Use Policy', 'Security Awareness and Training records', 'Personnel Screening procedure', 'Physical Security Policy', 'Visitor log and access-control records'], checks: ['Confirm staff obligations are communicated and acknowledged.', 'Review current training completion and role-specific training samples.', 'Test joiner, mover, leaver or visitor records for consistent application.', 'Check physical and personnel controls cover the agreed locations.'], good: 'Personnel and physical safeguards are current, consistently applied, and evidenced by training, screening, and access records.' },
+  { test: (id) => Number(id) >= 3000, documents: ['Security Monitoring and Logging Standard', 'Incident Management Plan', 'Security incident register', 'Business Continuity and Disaster Recovery Plan', 'Incident exercise and lessons-learned records'], checks: ['Verify logs and alerts are retained, protected, and reviewed by accountable roles.', 'Sample security events or incidents from detection through closure.', 'Confirm response, recovery, and lessons-learned activities are tested.', 'Check corrective actions are assigned, tracked, and closed.'], good: 'Security events are detected, investigated, responded to, and improved through documented monitoring, incident management, and recovery practice.' },
+];
+
+function guidanceForControl(controlId) {
+  return CONTROL_GUIDANCE.find((profile) => profile.test(controlId));
+}
+
 function buildOfficialSteps(level) {
   const questions = DCC_QUESTION_BANK[level] || [];
   const questionsByControl = questions.reduce((groups, question) => {
@@ -517,6 +531,14 @@ function buildOfficialSteps(level) {
     title: `Control ${controlId}`,
     description: `Assess the ${controlQuestions.length} related source question${controlQuestions.length === 1 ? '' : 's'} within this DCC control family. Record a finding and evidence against each question.`,
     items: controlQuestions.map((question) => ({
+        ...(() => {
+          const guidance = guidanceForControl(question.controlId);
+          return {
+            documentExamples: guidance.documents,
+            whatGoodLooksLike: guidance.good,
+            keyChecks: guidance.checks,
+          };
+        })(),
       responseType: /^(Does|Do|Has|Have|Is|Are|Can|Will)\b/i.test(question.question) ? 'yes-no' : 'long-form',
       modelAnswer: `Describe the organisation's current approach to ${question.question.replace(/[?!.].*$/, '').replace(/^(How|What|Which|When|Where)\s+/i, '').toLowerCase()}. Identify the responsible role, relevant systems or processes, the frequency of review, and the evidence available to support the response.`,
         id: question.id,
@@ -524,14 +546,6 @@ function buildOfficialSteps(level) {
         hint: `Official source: ${question.source}, page ${question.sourcePage}. Assess the response against the agreed scope and record any qualification or limitation in the findings.`,
         exampleEvidence: question.expectedEvidence,
         frameworkHints: frameworkHints(question.controlId),
-        whatGoodLooksLike: `The applicant provides a clear, scope-relevant response supported by current, retrievable evidence. The evidence demonstrates the control is operating in practice, not merely documented as an intention.`,
-        keyChecks: [
-          'Confirm the applicant response answers the precise question asked, including any listed conditions or choices.',
-          'Review the expected evidence named in the Applicant Guide and record the specific document, system, or interview evidence examined.',
-          'Confirm the evidence applies to the agreed assessment scope, including relevant people, systems, locations, and suppliers.',
-          'Check that the evidence is current and shows the control operates in practice, not only that a policy or plan exists.',
-          'Record material gaps, exceptions, compensating controls, and any follow-up evidence needed before assigning the final status.',
-        ],
       })),
   }));
 }

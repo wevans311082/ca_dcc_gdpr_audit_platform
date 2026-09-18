@@ -1,7 +1,14 @@
+import { useState } from 'react';
+
 export default function WizardProgress({ steps, currentStep, onStepClick }) {
+  const [indexFilter, setIndexFilter] = useState('');
   if (steps.length > 20) {
     const current = steps[currentStep];
     const progress = ((currentStep + 1) / steps.length) * 100;
+    const matchingSteps = steps.map((step, index) => ({ step, index })).filter(({ step }) => {
+      const searchable = `${step.title} ${step.items.map((item) => item.label).join(' ')}`.toLowerCase();
+      return searchable.includes(indexFilter.trim().toLowerCase());
+    });
     return (
       <nav className="wizard-progress wizard-progress-compact" aria-label="Audit progress">
         <div className="compact-progress-copy">
@@ -12,9 +19,22 @@ export default function WizardProgress({ steps, currentStep, onStepClick }) {
           <div className="compact-progress-value" style={{ width: `${progress}%` }} />
         </div>
         <details className="control-index">
-          <summary>Control index</summary>
-          <ol className="control-index-list">
-            {steps.map((step, index) => {
+          <summary>Browse controls</summary>
+          <div className="control-index-panel">
+            <div className="control-index-heading">
+              <strong>Control family index</strong>
+              <span>{matchingSteps.length} of {steps.length}</span>
+            </div>
+            <input
+              type="search"
+              className="control-index-filter"
+              value={indexFilter}
+              onChange={(event) => setIndexFilter(event.target.value)}
+              placeholder="Find a control or question"
+              aria-label="Find a control family"
+            />
+            <ol className="control-index-list">
+            {matchingSteps.map(({ step, index }) => {
               const isCurrent = index === currentStep;
               const isCompleted = index < currentStep;
               return (
@@ -31,7 +51,8 @@ export default function WizardProgress({ steps, currentStep, onStepClick }) {
                 </li>
               );
             })}
-          </ol>
+            </ol>
+          </div>
         </details>
       </nav>
     );
