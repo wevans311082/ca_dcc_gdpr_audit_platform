@@ -3,12 +3,12 @@ import { CATALOGUE_VERSION, LEVEL_CONFIGS, STATUS_OPTIONS, getLevelConfig } from
 const CHECKPOINT_VERSION = 1;
 const validStatuses = new Set(STATUS_OPTIONS.map((option) => option.value));
 
-export function buildCheckpoint({ assessments, assessorName, organisationName, auditDate, scope, selectedLevel, currentStep, view }) {
+export function buildCheckpoint({ assessments, assessorName, organisationName, auditDate, scope, certifications, selectedLevel, currentStep, view }) {
   return {
     checkpointVersion: CHECKPOINT_VERSION,
     catalogueVersion: CATALOGUE_VERSION,
     savedAt: new Date().toISOString(),
-    metadata: { assessorName, organisationName, auditDate },
+    metadata: { assessorName, organisationName, auditDate, certifications },
     scope,
     selectedLevel,
     currentStep,

@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { STATUS_OPTIONS } from '../data/auditSteps';
 
-export default function AuditItem({ stepId, item, assessment, onChange }) {
+export default function AuditItem({ stepId, item, assessment, certifications, onChange }) {
   const [guidanceOpen, setGuidanceOpen] = useState(false);
 
   const handleStatusChange = (e) => {
@@ -56,6 +56,15 @@ export default function AuditItem({ stepId, item, assessment, onChange }) {
         <p className="audit-item-example">
           <span className="example-icon" aria-hidden="true">📂</span> <strong>Example Evidence:</strong> {item.exampleEvidence}
         </p>
+      )}
+      {item.frameworkHints?.length > 0 && certifications?.some((certification) => certification === 'iso27001' || certification === 'cyberEssentials' || certification === 'cyberEssentialsPlus') && (
+        <div className="framework-hints" aria-label="Potential existing evidence coverage">
+          {item.frameworkHints.map((hint) => {
+            const isIsoHint = hint.startsWith('ISO');
+            const supported = isIsoHint ? certifications.includes('iso27001') : certifications.includes('cyberEssentials') || certifications.includes('cyberEssentialsPlus');
+            return supported && <span key={hint} className="framework-pill">Potential coverage: {hint}</span>;
+          })}
+        </div>
       )}
       <div className="audit-item-response">
         <label htmlFor={`response-${stepId}-${item.id}`} className="notes-label">Applicant Response</label>

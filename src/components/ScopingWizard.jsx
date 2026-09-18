@@ -1,4 +1,5 @@
 import { LEVEL_CONFIGS, SCOPING_FIELDS } from '../data/auditSteps';
+import EvidencePack from './EvidencePack';
 
 export default function ScopingWizard({ scope, selectedLevel, onScopeChange, onLevelChange, onBack, onContinue, onSkip }) {
   const selectedConfig = LEVEL_CONFIGS[selectedLevel];
@@ -27,6 +28,8 @@ export default function ScopingWizard({ scope, selectedLevel, onScopeChange, onL
             </select>
             <p className="form-help">Source: {selectedConfig.source}</p>
           </div>
+
+          <EvidencePack levelConfig={selectedConfig} />
 
           {SCOPING_FIELDS.map((field) => (
             <div className="form-group" key={field.id}>

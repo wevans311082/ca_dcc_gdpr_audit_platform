@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import { getLevelConfig } from './data/auditSteps';
+import { CERTIFICATION_OPTIONS, getLevelConfig } from './data/auditSteps';
 import WizardProgress from './components/WizardProgress';
 import WizardStep from './components/WizardStep';
 import AuditReport from './components/AuditReport';
@@ -39,6 +39,7 @@ export default function App() {
   const [showAttestation, setShowAttestation] = useState(false);
   const [selectedLevel, setSelectedLevel] = useState(0);
   const [scope, setScope] = useState({});
+  const [certifications, setCertifications] = useState([]);
   const [importError, setImportError] = useState('');
   const importInputRef = useRef(null);
 
@@ -88,6 +89,7 @@ export default function App() {
       setShowAttestation(false);
       setSelectedLevel(0);
       setScope({});
+      setCertifications([]);
       setStarted(false);
     }
   };
@@ -101,7 +103,7 @@ export default function App() {
 
   const handleDownloadCheckpoint = () => {
     const checkpoint = buildCheckpoint({
-      assessments, assessorName, organisationName, auditDate, scope, selectedLevel, currentStep,
+      assessments, assessorName, organisationName, auditDate, scope, certifications, selectedLevel, currentStep,
       view: showReport ? 'report' : showAttestation ? 'attestation' : showScope ? 'scope' : started ? 'audit' : 'start',
     });
     const blob = new Blob([JSON.stringify(checkpoint, null, 2)], { type: 'application/json' });
@@ -122,6 +124,7 @@ export default function App() {
       setAssessorName(checkpoint.metadata.assessorName || '');
       setOrganisationName(checkpoint.metadata.organisationName || '');
       setAuditDate(checkpoint.metadata.auditDate || new Date().toISOString().slice(0, 10));
+      setCertifications(checkpoint.metadata.certifications || []);
       setScope(checkpoint.scope);
       setSelectedLevel(checkpoint.selectedLevel);
       setAssessments(Object.fromEntries(
@@ -212,6 +215,22 @@ export default function App() {
                   onChange={(e) => setAuditDate(e.target.value)}
                 />
               </div>
+              <fieldset className="certification-fieldset">
+                <legend className="form-label">Existing company certifications</legend>
+                <p className="form-help">Select current certifications. Relevant controls will show a potential-coverage indicator for the assessor.</p>
+                <div className="certification-options">
+                  {CERTIFICATION_OPTIONS.map((option) => (
+                    <label key={option.id} className="certification-option">
+                      <input
+                        type="checkbox"
+                        checked={certifications.includes(option.id)}
+                        onChange={(event) => setCertifications((current) => event.target.checked ? [...current, option.id] : current.filter((id) => id !== option.id))}
+                      />
+                      <span><strong>{option.label}</strong><small>{option.detail}</small></span>
+                    </label>
+                  ))}
+                </div>
+              </fieldset>
             </div>
 
             <div className="start-actions">
@@ -334,6 +353,7 @@ export default function App() {
         <WizardStep
           step={step}
           stepAssessments={assessments[step.id]}
+          certifications={certifications}
           onItemChange={handleItemChange}
         />
 

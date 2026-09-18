@@ -11,6 +11,28 @@ export default function WizardProgress({ steps, currentStep, onStepClick }) {
         <div className="compact-progress-track" aria-hidden="true">
           <div className="compact-progress-value" style={{ width: `${progress}%` }} />
         </div>
+        <details className="control-index">
+          <summary>Control index</summary>
+          <ol className="control-index-list">
+            {steps.map((step, index) => {
+              const isCurrent = index === currentStep;
+              const isCompleted = index < currentStep;
+              return (
+                <li key={step.id} className={isCurrent ? 'current' : ''}>
+                  <button
+                    type="button"
+                    onClick={() => onStepClick(index)}
+                    aria-current={isCurrent ? 'step' : undefined}
+                  >
+                    <span aria-hidden="true">{isCompleted ? 'Completed' : index + 1}</span>
+                    <span>{step.title}</span>
+                    <small>{step.items.length} question{step.items.length === 1 ? '' : 's'}</small>
+                  </button>
+                </li>
+              );
+            })}
+          </ol>
+        </details>
       </nav>
     );
   }

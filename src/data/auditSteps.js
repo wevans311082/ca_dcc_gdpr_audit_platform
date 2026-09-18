@@ -456,6 +456,55 @@ export const STATUS_OPTIONS = [
 
 export const CATALOGUE_VERSION = '1.0.0';
 
+export const CERTIFICATION_OPTIONS = [
+  { id: 'iso27001', label: 'ISO/IEC 27001:2022', detail: 'Certified information security management system' },
+  { id: 'cyberEssentials', label: 'Cyber Essentials', detail: 'Current certification' },
+  { id: 'cyberEssentialsPlus', label: 'Cyber Essentials Plus', detail: 'Current independently verified certification' },
+  { id: 'iasme', label: 'IASME Cyber Assurance', detail: 'Current certification' },
+];
+
+const EVIDENCE_PACKS = {
+  0: [
+    'Current Cyber Essentials certificate and scope statement',
+    'Information security or cyber security policy',
+    'UK GDPR / data protection policy and DPIA procedure',
+    'Risk assessment or risk register covering the assessed service',
+    'Business continuity, backup, and resilience arrangements',
+  ],
+  1: [
+    'Current Cyber Essentials certificate, questionnaire/report, and DCC-to-CE scope diagram',
+    'ISO 27001:2022-aligned information security policy set and statement of applicability, where held',
+    'Information security governance, risk management, asset management, and supplier security policies',
+    'Network diagrams, asset inventory, system baseline, and approved software records',
+    'Access control, identity management, password, remote access, and privileged account procedures',
+    'Data protection, encryption, removable media, secure destruction, and data handling procedures',
+    'Vulnerability, patch, change, malware protection, and penetration-test records',
+    'Business continuity, backup, incident management, logging, monitoring, and recovery test records',
+    'Security awareness, acceptable use, personnel screening, joiner/mover/leaver, and physical security records',
+  ],
+  2: [
+    'All Level 1 evidence, current for the agreed scope',
+    'Current Cyber Essentials Plus certificate, assessment report, and DCC-to-CE+ scope diagram',
+    'ISO/IEC 27001:2022 certificate, audit report, risk treatment plan, statement of applicability, and internal-audit evidence, where held',
+    'Board security direction, management review minutes, assurance plan, and internal control testing evidence',
+    'Automated asset inventory, identity and access management, privileged access, and security configuration evidence',
+    'Data classification, data-flow, data-at-rest/in-transit, DLP, sanitisation, and cryptographic key-management evidence',
+    'Security operations monitoring, correlated audit logs, incident exercises, vulnerability remediation, and resilience test evidence',
+  ],
+};
+
+function frameworkHints(controlId) {
+  const numericControl = Number(controlId);
+  const hints = [];
+  if (numericControl >= 1000) {
+    hints.push('ISO/IEC 27001:2022 evidence may be relevant');
+  }
+  if (controlId === '0001' || (numericControl >= 2200 && numericControl < 2600)) {
+    hints.push('Cyber Essentials / CE+ evidence may be relevant');
+  }
+  return hints;
+}
+
 function buildOfficialSteps(level) {
   const questions = DCC_QUESTION_BANK[level] || [];
   const questionsByControl = questions.reduce((groups, question) => {
@@ -474,6 +523,7 @@ function buildOfficialSteps(level) {
         label: `${question.id} (MOD ${question.modId}): ${question.question}`,
         hint: `Official source: ${question.source}, page ${question.sourcePage}. Assess the response against the agreed scope and record any qualification or limitation in the findings.`,
         exampleEvidence: question.expectedEvidence,
+        frameworkHints: frameworkHints(question.controlId),
         whatGoodLooksLike: `The applicant provides a clear, scope-relevant response supported by current, retrievable evidence. The evidence demonstrates the control is operating in practice, not merely documented as an intention.`,
         keyChecks: [
           'Confirm the applicant response answers the precise question asked, including any listed conditions or choices.',
@@ -493,6 +543,7 @@ export const LEVEL_CONFIGS = {
     subtitle: 'Baseline',
     controlCount: 3,
     source: 'DCC Applicant Guide - L0 - V.1.3.pdf',
+    evidencePack: EVIDENCE_PACKS[0],
     available: true,
     steps: buildOfficialSteps(0),
   },
@@ -502,6 +553,7 @@ export const LEVEL_CONFIGS = {
     subtitle: 'Applicant Guide v1.3',
     controlCount: 101,
     source: 'DCC Applicant Guide - L1 - V.1.3.pdf',
+    evidencePack: EVIDENCE_PACKS[1],
     available: true,
     steps: buildOfficialSteps(1),
   },
@@ -511,6 +563,7 @@ export const LEVEL_CONFIGS = {
     subtitle: 'Applicant Guide v1.3',
     controlCount: 139,
     source: 'DCC Applicant Guide - L2 - V.1.3.pdf',
+    evidencePack: EVIDENCE_PACKS[2],
     available: true,
     steps: buildOfficialSteps(2),
   },
