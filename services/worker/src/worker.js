@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
+import { createRequire } from 'node:module';
 import { PassThrough, Transform } from 'node:stream';
-import archiver from 'archiver';
 import { Queue, Worker } from 'bullmq';
 import { createEvidencePackageJob, createIngestionJob, createVectorCleanupJob, deleteDocumentVectors, EVIDENCE_PACKAGE_QUEUE, INGESTION_QUEUE, VECTOR_CLEANUP_QUEUE } from '@ca-dcc/shared';
 import pg from 'pg';
@@ -10,6 +10,8 @@ import { embedTexts, indexChunks } from './indexer.js';
 import { parseDocument } from './parser.js';
 import { createDocumentStorage } from './storage.js';
 
+const require = createRequire(import.meta.url);
+const archiver = require('archiver');
 const { Pool } = pg;
 const config = loadConfig();
 const database = new Pool({ connectionString: config.databaseUrl });
