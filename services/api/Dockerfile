@@ -6,7 +6,8 @@ COPY package.json package-lock.json ./
 COPY packages/shared/package.json packages/shared/package.json
 COPY services/api/package.json services/api/package.json
 
-RUN npm ci --workspace @ca-dcc/audit-api --include-workspace-root
+# npm install handles cross-platform optional deps; npm ci fails on Alpine for emnapi.
+RUN npm install --ignore-scripts --prefer-offline --workspace @ca-dcc/audit-api --include-workspace-root
 
 COPY packages/shared packages/shared
 COPY services/api services/api
