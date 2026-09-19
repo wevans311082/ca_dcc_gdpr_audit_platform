@@ -1,9 +1,21 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { STATUS_OPTIONS } from '../data/auditSteps';
 
-export default function AuditItem({ stepId, item, assessment, certifications, onChange }) {
+export default function AuditItem({ stepId, item, assessment, certifications, onChange, answerCapability, onGenerateAnswer, onLoadAnswer }) {
   const [guidanceOpen, setGuidanceOpen] = useState(false);
   const [statusError, setStatusError] = useState('');
+  const [referencedAnswer, setReferencedAnswer] = useState(null);
+  const [answerError, setAnswerError] = useState('');
+  const [answerLoading, setAnswerLoading] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!onLoadAnswer) return undefined;
+    onLoadAnswer(item).then((answer) => {
+      if (!cancelled) setReferencedAnswer(answer);
+    }).catch(() => undefined);
+    return () => { cancelled = true; };
+  }, [item, onLoadAnswer]);
 
   const handleStatusChange = (e) => {
     if (e.target.value === 'compliant' && !assessment.response?.trim()) {
@@ -30,6 +42,18 @@ export default function AuditItem({ stepId, item, assessment, certifications, on
   };
 
   const currentStatus = STATUS_OPTIONS.find((s) => s.value === assessment.status) || STATUS_OPTIONS[0];
+
+  const handleGenerateAnswer = async (refresh = false) => {
+    try {
+      setAnswerLoading(true);
+      setAnswerError('');
+      setReferencedAnswer(await onGenerateAnswer(item, refresh));
+    } catch (error) {
+      setAnswerError(error.message);
+    } finally {
+      setAnswerLoading(false);
+    }
+  };
 
   return (
     <div className={`audit-item status-${assessment.status}`}>
@@ -102,6 +126,58 @@ export default function AuditItem({ stepId, item, assessment, certifications, on
           </>
         )}
       </div>
+
+      {answerCapability && (
+        <section className="referenced-answer" aria-label="Referenced policy answer">
+          <div className="referenced-answer-header">
+            <div>
+              <h3>Referenced Policy Answer</h3>
+              <p>{answerCapability.message}</p>
+            </div>
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              disabled={!answerCapability.enabled || answerLoading}
+              title={!answerCapability.enabled ? answerCapability.message : undefined}
+              onClick={() => handleGenerateAnswer(Boolean(referencedAnswer))}
+            >
+              {answerLoading ? 'Generating…' : referencedAnswer ? 'Refresh Answer' : 'Generate Answer'}
+            </button>
+          </div>
+          {referencedAnswer && (
+            <div className="referenced-answer-body">
+              <div className={`answer-freshness answer-freshness-${referencedAnswer.status || 'current'}`}>
+                {referencedAnswer.status === 'stale' ? 'Stale policy answer' : 'Current policy answer'}
+              </div>
+              {(referencedAnswer.generatedAt || referencedAnswer.created_at || referencedAnswer.model) && (
+                <p className="answer-provenance">
+                  {referencedAnswer.generatedAt || referencedAnswer.created_at ? `Generated ${new Date(referencedAnswer.generatedAt || referencedAnswer.created_at).toLocaleString('en-GB')}` : 'Generated answer'}
+                  {referencedAnswer.model ? ` using ${referencedAnswer.model}` : ''}
+                </p>
+              )}
+              {referencedAnswer.status === 'stale' && <p className="answer-warning">This answer was generated from policy evidence that has since changed or been removed. Refresh it before relying on it for an assessment finding.</p>}
+              <p>{referencedAnswer.answer || 'The indexed policy documents do not provide sufficient evidence for this question.'}</p>
+              {referencedAnswer.insufficient_evidence && <p className="answer-warning">Insufficient policy evidence was found. Review the document library or request more evidence.</p>}
+              {referencedAnswer.limitations && <p className="answer-limitations"><strong>Limitations:</strong> {referencedAnswer.limitations}</p>}
+              {referencedAnswer.citations?.length > 0 && (
+                <div className="answer-citations">
+                  <strong>Policy references</strong>
+                  <ul>
+                    {referencedAnswer.citations.map((citation, index) => (
+                      <li key={`${citation.title}-${citation.page_number || citation.section_heading}-${index}`}>
+                        <span>{citation.title} (v{citation.version_number}){citation.page_number ? `, p. ${citation.page_number}` : citation.section_heading ? `, ${citation.section_heading}` : ''}</span>
+                        <q>{citation.excerpt}</q>
+                        {citation.source_status === 'unavailable' && <small className="citation-unavailable">This cited source is no longer active.</small>}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          )}
+          {answerError && <p className="form-error" role="alert">{answerError}</p>}
+        </section>
+      )}
 
       {(item.whatGoodLooksLike || (item.keyChecks && item.keyChecks.length > 0)) && (
         <div className="guidance-container">

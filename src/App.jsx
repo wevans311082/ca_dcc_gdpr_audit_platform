@@ -1,11 +1,16 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { CERTIFICATION_OPTIONS, getLevelConfig } from './data/auditSteps';
 import WizardProgress from './components/WizardProgress';
 import WizardStep from './components/WizardStep';
 import AuditReport from './components/AuditReport';
 import ScopingWizard from './components/ScopingWizard';
 import ScopeAttestation from './components/ScopeAttestation';
+import DocumentLibrary from './components/DocumentLibrary';
 import { buildCheckpoint, validateCheckpoint } from './utils/auditIO';
+import {
+  createAudit, deleteDocument, downloadDocument, generateReferencedAnswer, getAudit, getReadiness, getReferencedAnswer,
+  listAudits, listDocuments, loadSession, registerWorkspace, replaceDocument, retryDocument, saveAssessment, saveScope, uploadDocument,
+} from './utils/auditApi';
 import './App.css';
 
 function buildInitialAssessments(steps = getLevelConfig(0).steps) {
@@ -27,6 +32,33 @@ function formatDate(dateStr) {
   return new Date(year, month - 1, day).toLocaleDateString('en-GB');
 }
 
+function buildScopePayload(scope, { assessorName, organisationName, auditDate, certifications, currentStep, view }) {
+  return {
+    ...scope,
+    _dccMetadata: { assessorName, organisationName, auditDate, certifications, currentStep, view },
+  };
+}
+
+function hydrateAssessments(level, savedAssessments) {
+  const steps = getLevelConfig(level).steps;
+  const nextAssessments = buildInitialAssessments(steps);
+  const savedByQuestion = new Map(savedAssessments.map((assessment) => [assessment.question_id, assessment]));
+  steps.forEach((step) => {
+    step.items.forEach((item) => {
+      const saved = savedByQuestion.get(item.id);
+      if (!saved) return;
+      nextAssessments[step.id][item.id] = {
+        ...nextAssessments[step.id][item.id],
+        status: saved.status,
+        response: saved.response,
+        notes: saved.notes,
+        evidenceChecklist: saved.evidence_checklist || [],
+      };
+    });
+  });
+  return nextAssessments;
+}
+
 export default function App() {
   const [currentStep, setCurrentStep] = useState(0);
   const [assessments, setAssessments] = useState(buildInitialAssessments);
@@ -41,7 +73,17 @@ export default function App() {
   const [scope, setScope] = useState({});
   const [certifications, setCertifications] = useState([]);
   const [importError, setImportError] = useState('');
+  const [session, setSession] = useState(loadSession);
+  const [auditId, setAuditId] = useState(null);
+  const [availableAudits, setAvailableAudits] = useState([]);
+  const [accountEmail, setAccountEmail] = useState('');
+  const [accountPassword, setAccountPassword] = useState('');
+  const [apiError, setApiError] = useState('');
+  const [persistenceStatus, setPersistenceStatus] = useState('');
+  const [documents, setDocuments] = useState([]);
+  const [readiness, setReadiness] = useState(null);
   const importInputRef = useRef(null);
+  const saveTimersRef = useRef(new Map());
 
   const levelConfig = getLevelConfig(selectedLevel);
   const activeSteps = levelConfig.steps;
@@ -49,7 +91,62 @@ export default function App() {
   const totalSteps = activeSteps.length;
   const isLastStep = currentStep === totalSteps - 1;
 
+  useEffect(() => {
+    if (!session) return undefined;
+    let cancelled = false;
+    listAudits(session)
+      .then(({ audits }) => { if (!cancelled) setAvailableAudits(audits); })
+      .catch((error) => { if (!cancelled) setApiError(error.message); });
+    return () => { cancelled = true; };
+  }, [session]);
+
+  useEffect(() => {
+    let cancelled = false;
+    getReadiness()
+      .then((nextReadiness) => { if (!cancelled) setReadiness(nextReadiness); })
+      .catch(() => { if (!cancelled) setReadiness({ openAiConfigured: false }); });
+    return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => () => {
+    saveTimersRef.current.forEach((timer) => window.clearTimeout(timer));
+  }, []);
+
+  const scheduleSave = (key, action) => {
+    const existingTimer = saveTimersRef.current.get(key);
+    if (existingTimer) window.clearTimeout(existingTimer);
+    setPersistenceStatus('Saving…');
+    saveTimersRef.current.set(key, window.setTimeout(async () => {
+      try {
+        await action();
+        setPersistenceStatus('Saved');
+      } catch (error) {
+        setPersistenceStatus('Save failed');
+        setApiError(error.message);
+      } finally {
+        saveTimersRef.current.delete(key);
+      }
+    }, 500));
+  };
+
+  const queueScopeSave = (nextScope, nextLevel = selectedLevel, view = 'scope') => {
+    if (!session || !auditId) return;
+    scheduleSave('scope', () => saveScope(
+      session,
+      auditId,
+      buildScopePayload(nextScope, { assessorName, organisationName, auditDate, certifications, currentStep, view }),
+      nextLevel,
+    ));
+  };
+
+  const refreshDocuments = async (targetAuditId = auditId) => {
+    if (!session || !targetAuditId) return;
+    const response = await listDocuments(session, targetAuditId);
+    setDocuments(response.documents);
+  };
+
   const handleItemChange = (stepId, itemId, updates) => {
+    const nextAssessment = { ...assessments[stepId][itemId], ...updates };
     setAssessments((prev) => ({
       ...prev,
       [stepId]: {
@@ -57,6 +154,9 @@ export default function App() {
         [itemId]: { ...prev[stepId][itemId], ...updates },
       },
     }));
+    if (session && auditId) {
+      scheduleSave(`assessment-${itemId}`, () => saveAssessment(session, auditId, itemId, nextAssessment));
+    }
   };
 
   const handleNext = () => {
@@ -90,6 +190,8 @@ export default function App() {
       setSelectedLevel(0);
       setScope({});
       setCertifications([]);
+      setAuditId(null);
+      setPersistenceStatus('');
       setStarted(false);
     }
   };
@@ -99,6 +201,144 @@ export default function App() {
     setSelectedLevel(level);
     setAssessments(buildInitialAssessments(nextLevel.steps));
     setCurrentStep(0);
+    queueScopeSave(scope, level);
+  };
+
+  const handleRegisterWorkspace = async () => {
+    try {
+      setApiError('');
+      const nextSession = await registerWorkspace({
+        email: accountEmail,
+        displayName: assessorName,
+        password: accountPassword,
+        organizationName: organisationName,
+      });
+      setSession(nextSession);
+      setPersistenceStatus('Workspace connected');
+    } catch (error) {
+      setApiError(error.message);
+    }
+  };
+
+  const persistScopeAndStart = async (nextView) => {
+    if (!session) throw new Error('Create a workspace account before starting a server-backed audit.');
+    let nextAuditId = auditId;
+    if (!nextAuditId) {
+      const created = await createAudit(session, {
+        title: `DCC readiness assessment - ${organisationName || session.organization.name} - ${auditDate}`,
+        selectedLevel,
+        questionCatalogueVersion: 'dcc-applicant-guides-v1.3',
+      });
+      nextAuditId = created.audit.id;
+      setAuditId(nextAuditId);
+      setAvailableAudits((current) => [created.audit, ...current]);
+    }
+    await saveScope(
+      session,
+      nextAuditId,
+      buildScopePayload(scope, { assessorName, organisationName, auditDate, certifications, currentStep, view: nextView }),
+      selectedLevel,
+    );
+    await refreshDocuments(nextAuditId);
+    setPersistenceStatus('Saved');
+  };
+
+  const handleScopeContinue = async () => {
+    try {
+      setPersistenceStatus('Saving…');
+      await persistScopeAndStart('attestation');
+      setShowScope(false);
+      setShowAttestation(true);
+    } catch (error) {
+      setPersistenceStatus('Save failed');
+      setApiError(error.message);
+    }
+  };
+
+  const handleStartAudit = async () => {
+    try {
+      await persistScopeAndStart('audit');
+      setShowAttestation(false);
+    } catch (error) {
+      setPersistenceStatus('Save failed');
+      setApiError(error.message);
+    }
+  };
+
+  const handleResumeAudit = async (nextAuditId) => {
+    try {
+      setApiError('');
+      const { audit, assessments: savedAssessments } = await getAudit(session, nextAuditId);
+      const savedScope = audit.scope || {};
+      const metadata = savedScope._dccMetadata || {};
+      setAuditId(audit.id);
+      setSelectedLevel(audit.selected_level);
+      setAssessments(hydrateAssessments(audit.selected_level, savedAssessments));
+      setScope(Object.fromEntries(Object.entries(savedScope).filter(([key]) => key !== '_dccMetadata')));
+      setAssessorName(metadata.assessorName || '');
+      setOrganisationName(metadata.organisationName || session.organization.name);
+      setAuditDate(metadata.auditDate || new Date().toISOString().slice(0, 10));
+      setCertifications(metadata.certifications || []);
+      setCurrentStep(Math.min(metadata.currentStep || 0, getLevelConfig(audit.selected_level).steps.length - 1));
+      setStarted(true);
+      setShowScope(metadata.view === 'scope');
+      setShowAttestation(metadata.view === 'attestation');
+      setShowReport(metadata.view === 'report');
+      await refreshDocuments(audit.id);
+      setPersistenceStatus('Saved');
+    } catch (error) {
+      setApiError(error.message);
+    }
+  };
+
+  const handleDocumentUpload = async (document) => {
+    await uploadDocument(session, auditId, document);
+    await refreshDocuments();
+  };
+
+  const handleDocumentReplace = async (documentId, document) => {
+    await replaceDocument(session, auditId, documentId, document);
+    await refreshDocuments();
+  };
+
+  const handleDocumentRetry = async (documentId) => {
+    await retryDocument(session, auditId, documentId);
+    await refreshDocuments();
+  };
+
+  const handleDocumentDelete = async (documentId) => {
+    await deleteDocument(session, auditId, documentId);
+    await refreshDocuments();
+  };
+
+  const handleDocumentDownload = (documentId) => downloadDocument(session, auditId, documentId);
+
+  const handleGenerateAnswer = (item, refresh) => generateReferencedAnswer(
+    session,
+    auditId,
+    item.id,
+    item.label,
+    refresh,
+  ).then(({ answer }) => answer);
+
+  const handleLoadAnswer = (item) => {
+    if (!session || !auditId) return Promise.resolve(null);
+    return getReferencedAnswer(session, auditId, item.id).then(({ answer }) => answer);
+  };
+
+  const indexedDocumentAvailable = documents.some((document) => (document.ingestion_status || document.status) === 'indexed');
+  const answerCapability = !session || !auditId
+    ? { enabled: false, message: 'Save this audit before generating referenced policy answers.' }
+    : !readiness?.openAiConfigured
+      ? { enabled: false, message: 'Referenced answers are unavailable because OpenAI is not configured.' }
+      : !indexedDocumentAvailable
+        ? { enabled: false, message: 'Upload and index at least one policy document before generating an answer.' }
+        : { enabled: true, message: `Uses indexed policy excerpts and ${readiness.answerModel || 'the configured answer model'}; it does not change assessor findings.` };
+
+  const handleScopeChange = (field, value) => {
+    const nextScope = { ...scope, [field]: value };
+    setScope(nextScope);
+    queueScopeSave(nextScope);
   };
 
   const handleDownloadCheckpoint = () => {
@@ -194,6 +434,18 @@ export default function App() {
                   placeholder="e.g. Acme Corp Ltd"
                 />
               </div>
+              {!session && (
+                <>
+                  <div className="form-group">
+                    <label htmlFor="account-email" className="form-label">Work Email</label>
+                    <input id="account-email" type="email" className="form-input" value={accountEmail} onChange={(e) => setAccountEmail(e.target.value)} placeholder="e.g. jane@acme.example" />
+                  </div>
+                  <div className="form-group">
+                    <label htmlFor="account-password" className="form-label">Workspace Password</label>
+                    <input id="account-password" type="password" minLength="12" className="form-input" value={accountPassword} onChange={(e) => setAccountPassword(e.target.value)} placeholder="At least 12 characters" />
+                  </div>
+                </>
+              )}
               <div className="form-group">
                 <label htmlFor="assessor-name" className="form-label">Assessor Name</label>
                 <input
@@ -235,11 +487,19 @@ export default function App() {
 
             <div className="start-actions">
               <button className="btn btn-secondary" onClick={() => importInputRef.current?.click()}>Import JSON</button>
-              <button className="btn btn-primary btn-large" onClick={() => { setStarted(true); setShowScope(true); }}>
+              {!session && <button className="btn btn-secondary" onClick={handleRegisterWorkspace}>Create Workspace</button>}
+              <button className="btn btn-primary btn-large" disabled={!session} onClick={() => { setStarted(true); setShowScope(true); }}>
                 Define Scope
               </button>
             </div>
-            {importError && <p className="form-error" role="alert">{importError}</p>}
+            {session && <p className="form-help">Connected as {session.user.display_name || session.user.displayName}.</p>}
+            {availableAudits.length > 0 && (
+              <section className="saved-audits" aria-labelledby="saved-audits-heading">
+                <h3 id="saved-audits-heading">Resume an Audit</h3>
+                {availableAudits.map((audit) => <button type="button" className="saved-audit" key={audit.id} onClick={() => handleResumeAudit(audit.id)}>{audit.title}</button>)}
+              </section>
+            )}
+            {(importError || apiError) && <p className="form-error" role="alert">{importError || apiError}</p>}
             <input ref={importInputRef} type="file" accept="application/json" className="visually-hidden" onChange={handleImportCheckpoint} />
           </div>
         </main>
@@ -258,10 +518,10 @@ export default function App() {
         <ScopingWizard
           scope={scope}
           selectedLevel={selectedLevel}
-          onScopeChange={(field, value) => setScope((previous) => ({ ...previous, [field]: value }))}
+          onScopeChange={handleScopeChange}
           onLevelChange={handleLevelChange}
           onBack={() => { setShowScope(false); setStarted(false); }}
-          onContinue={() => { setShowScope(false); setShowAttestation(true); }}
+          onContinue={handleScopeContinue}
           onSkip={() => setShowScope(false)}
         />
       </div>
@@ -283,7 +543,7 @@ export default function App() {
           scope={scope}
           selectedLevel={selectedLevel}
           onBack={() => { setShowAttestation(false); setShowScope(true); }}
-          onStartAudit={() => setShowAttestation(false)}
+          onStartAudit={handleStartAudit}
         />
       </div>
     );
@@ -311,6 +571,8 @@ export default function App() {
             steps={activeSteps}
             levelConfig={levelConfig}
             scope={scope}
+            session={session}
+            auditId={auditId}
             onBack={() => {
               setShowReport(false);
               setCurrentStep(totalSteps - 1);
@@ -341,7 +603,19 @@ export default function App() {
         {organisationName && <span><strong>Organisation:</strong> {organisationName}</span>}
         {assessorName && <span><strong>Assessor:</strong> {assessorName}</span>}
         {auditDate && <span><strong>Date:</strong> {formatDate(auditDate)}</span>}
+        {persistenceStatus && <span className="persistence-status">{persistenceStatus}</span>}
       </div>
+
+      {auditId && (
+        <DocumentLibrary
+          documents={documents}
+          onUpload={handleDocumentUpload}
+          onReplace={handleDocumentReplace}
+          onRetry={handleDocumentRetry}
+          onDelete={handleDocumentDelete}
+          onDownload={handleDocumentDownload}
+        />
+      )}
 
       <WizardProgress
         steps={activeSteps}
@@ -355,6 +629,9 @@ export default function App() {
           stepAssessments={assessments[step.id]}
           certifications={certifications}
           onItemChange={handleItemChange}
+          answerCapability={answerCapability}
+          onGenerateAnswer={handleGenerateAnswer}
+          onLoadAnswer={handleLoadAnswer}
         />
 
         <div className="wizard-nav">

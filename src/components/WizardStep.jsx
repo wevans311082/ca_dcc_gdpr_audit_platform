@@ -1,6 +1,6 @@
 import AuditItem from './AuditItem';
 
-export default function WizardStep({ step, stepAssessments, certifications, onItemChange }) {
+export default function WizardStep({ step, stepAssessments, certifications, onItemChange, answerCapability, onGenerateAnswer, onLoadAnswer }) {
   return (
     <section className="wizard-step" aria-labelledby={`step-title-${step.id}`}>
       <header className="step-header">
@@ -19,6 +19,9 @@ export default function WizardStep({ step, stepAssessments, certifications, onIt
             assessment={stepAssessments?.[item.id] || { status: 'not-assessed', notes: '', evidenceFiles: [], evidenceChecklist: [] }}
             certifications={certifications}
             onChange={onItemChange}
+            answerCapability={answerCapability}
+            onGenerateAnswer={onGenerateAnswer}
+            onLoadAnswer={onLoadAnswer}
           />
         ))}
       </div>

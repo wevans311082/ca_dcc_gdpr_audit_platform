@@ -1,0 +1,21 @@
+{
+  "name": "@ca-dcc/ingestion-worker",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "node --watch src/worker.js",
+    "start": "node src/worker.js",
+    "build": "node --check src/worker.js"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.799.0",
+    "@ca-dcc/shared": "*",
+    "archiver": "^8.0.0",
+    "bullmq": "^5.48.0",
+    "ioredis": "^5.6.0",
+    "mammoth": "^1.9.1",
+    "pdfjs-dist": "^5.3.31",
+    "pg": "^8.15.0"
+  }
+}
