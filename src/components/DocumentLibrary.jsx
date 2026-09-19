@@ -55,17 +55,22 @@ export default function DocumentLibrary({ documents, onUpload, onReplace, onRetr
     <section className="document-library" aria-labelledby="document-library-heading">
       <div className="document-library-heading">
         <div>
-          <p className="eyebrow">Policy Sources</p>
-          <h2 id="document-library-heading">Document Library</h2>
+          <p className="eyebrow">Workspace Policy Sources</p>
+          <h2 id="document-library-heading">Import Policy Documents</h2>
         </div>
         <button type="button" className="btn btn-primary" onClick={() => uploadInputRef.current?.click()} disabled={uploading}>
-          {uploading ? 'Uploading…' : 'Upload Policy'}
+          {uploading ? 'Importing…' : 'Import Files'}
         </button>
       </div>
       <input ref={uploadInputRef} type="file" accept={acceptedFormats} className="visually-hidden" onChange={handleUpload} />
-      <p className="document-library-help">PDF, DOCX, TXT, and Markdown files are indexed locally before they can support referenced answers.</p>
+      <p className="document-library-help">Add policy files to this workspace. PDF, DOCX, TXT, and Markdown files are indexed locally before they can support referenced answers.</p>
       {documents.length === 0 ? (
-        <p className="document-empty">No policies have been added to this assessment yet.</p>
+        <div className="document-empty">
+          <p>No policy files have been imported into this workspace yet.</p>
+          <button type="button" className="btn btn-secondary btn-sm" onClick={() => uploadInputRef.current?.click()} disabled={uploading}>
+            Import Your First Policy
+          </button>
+        </div>
       ) : (
         <ul className="document-list">
           {documents.map((document) => {
