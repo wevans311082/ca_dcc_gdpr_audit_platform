@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { Queue } from 'bullmq';
 import { createIngestionJob, createVectorCleanupJob, INGESTION_QUEUE, VECTOR_CLEANUP_QUEUE } from '@ca-dcc/shared';
+import { createMembershipGuard } from '../routeAuth.js';
 
 const allowedDocuments = new Map([
   ['application/pdf', 'pdf'],
@@ -23,18 +24,12 @@ function safeDownloadFilename(filename) {
   return filename.replace(/[\\/:*?"<>|\r\n]/g, '_').replace(/^\.+/, '') || 'policy-document';
 }
 
-async function requireMembership(request, reply) {
-  await request.jwtVerify();
-  if (!request.user.organizationId || !request.user.sub) {
-    return reply.code(401).send({ error: 'Invalid session.' });
-  }
-}
-
 function requireEditor(request) {
   if (!editorRoles.has(request.user.role)) throw new Error('Your role cannot modify documents.');
 }
 
 export async function documentRoutes(app, { config, database, storage }) {
+  const requireMembership = createMembershipGuard(database);
   const queue = new Queue(INGESTION_QUEUE, { connection: { url: config.redisUrl } });
   const cleanupQueue = new Queue(VECTOR_CLEANUP_QUEUE, { connection: { url: config.redisUrl } });
   app.addHook('onClose', async () => {

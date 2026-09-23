@@ -8,6 +8,8 @@ import { authRoutes } from './routes/auth.js';
 import { auditRoutes } from './routes/audits.js';
 import { documentRoutes } from './routes/documents.js';
 import { evidencePackageRoutes } from './routes/evidencePackages.js';
+import { adminRoutes } from './routes/admin.js';
+import { openApiDocument } from './openapi.js';
 import { createDocumentStorage } from './storage.js';
 
 async function probe(url) {
@@ -24,6 +26,7 @@ export async function buildServer(config, database) {
   app.addHook('onClose', async () => redis.quit());
 
   app.get('/api/health', async () => ({ status: 'ok', service: 'audit-api' }));
+  app.get('/api/openapi.json', async () => openApiDocument);
   app.get('/api/ready', async (request, reply) => {
     const checks = await Promise.allSettled([
       database.query('SELECT 1'),
@@ -48,6 +51,7 @@ export async function buildServer(config, database) {
   await app.register(auditRoutes, { config, database });
   await app.register(documentRoutes, { config, database, storage: createDocumentStorage(config) });
   await app.register(evidencePackageRoutes, { config, database, storage: createDocumentStorage(config) });
+  await app.register(adminRoutes, { config, database, storage: createDocumentStorage(config) });
 
   return app;
 }

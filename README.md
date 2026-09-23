@@ -65,16 +65,27 @@ The repository now includes the backend foundation for organization-scoped audit
 - Qdrant for tenant- and audit-filtered vector retrieval
 - OpenAI reserved for the final cited answer-generation step
 
-The API exposes health endpoints at `/api/health` and `/api/ready`, user registration/login, organization-scoped audit persistence, and document upload/list/delete routes. The frontend remains on its existing local workflow while its API integration is built in the next phase.
+The API exposes health endpoints at `/api/health` and `/api/ready`, user registration/login, organization-scoped audit persistence, document lifecycle routes, evidence packages, and cited policy answers. Organization administrators can manage the AI provider key/model and review uploaded files from the **Admin console** in the application.
 
 ### Local RAG Development
 
 1. Copy `.env.example` to `.env` and replace placeholder passwords and `JWT_SECRET`.
-2. Set `OPENAI_API_KEY` only when the cited-answer endpoint is introduced. It is never exposed to the browser.
+2. Optionally set `OPENAI_API_KEY` as a server-level fallback. Organization administrators can instead set a workspace-specific key in the Admin console; it is encrypted at rest and never returned to the browser.
 3. Start the stack with `docker compose up --build`.
 4. The one-shot `migrations` service applies the PostgreSQL schema before the API and worker start. The Ollama initialization service pulls `nomic-embed-text` into a persistent volume.
 
 The initial ingestion worker accepts embedded-text PDF, DOCX, TXT, and Markdown. It marks documents with no extractable text as unsupported; OCR for scanned PDFs and images is intentionally outside this first release.
+
+### Administration and API Reference
+
+- Organization administrators can set and test the OpenAI key, load available answer models, and choose the model used for cited answers.
+- The entry screen supports sign-in, workspace selection after password verification, and initial workspace/administrator setup. Existing workspace administrators create team accounts and assign roles from **Members & workspace**.
+- Workspace administrators can rename their workspace, change member roles, and remove workspace membership. Removing membership does not delete the user account or access to another workspace; the final administrator cannot be demoted or removed.
+- Full workspace deletion requires typing the exact workspace name. It waits for active ingestion/evidence-package jobs, removes queued jobs, and deletes workspace records, uploaded objects, evidence-package objects, and indexed vectors. User accounts are preserved after workspace deletion.
+- The Admin console upload register shows file versions, audit, upload owner, size, deletion state, and latest ingestion result/error across the organization.
+- The OpenAPI 3.1 document is available at `GET /api/openapi.json` and is linked from the Admin console's API reference tab.
+- Workspace-specific keys are encrypted using a key derived from `JWT_SECRET`. Keep that secret stable and backed up; rotating it makes previously stored workspace keys unreadable.
+- Docker Compose applies the organization-settings migration through its existing one-shot `migrations` service.
 
 ### Operational Checks
 

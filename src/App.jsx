@@ -6,10 +6,13 @@ import AuditReport from './components/AuditReport';
 import ScopingWizard from './components/ScopingWizard';
 import ScopeAttestation from './components/ScopeAttestation';
 import DocumentLibrary from './components/DocumentLibrary';
+import AdminConsole from './components/AdminConsole';
+import AuthEntry from './components/AuthEntry';
 import { buildCheckpoint, validateCheckpoint } from './utils/auditIO';
 import {
   createAudit, deleteDocument, downloadDocument, generateReferencedAnswer, getAudit, getReadiness, getReferencedAnswer,
-  listAudits, listDocuments, loadSession, registerWorkspace, replaceDocument, retryDocument, saveAssessment, saveScope, uploadDocument,
+  clearSession, getWorkspaceAiCapability, listAudits, listDocuments, loadSession, loginWorkspace, registerWorkspace, replaceDocument, retryDocument,
+  saveAssessment, saveScope, uploadDocument,
 } from './utils/auditApi';
 import './App.css';
 
@@ -82,6 +85,10 @@ export default function App() {
   const [persistenceStatus, setPersistenceStatus] = useState('');
   const [documents, setDocuments] = useState([]);
   const [readiness, setReadiness] = useState(null);
+  const [showAdmin, setShowAdmin] = useState(false);
+  const [authMode, setAuthMode] = useState('login');
+  const [loginOrganizations, setLoginOrganizations] = useState([]);
+  const [loginOrganizationId, setLoginOrganizationId] = useState('');
   const importInputRef = useRef(null);
   const saveTimersRef = useRef(new Map());
 
@@ -102,11 +109,14 @@ export default function App() {
 
   useEffect(() => {
     let cancelled = false;
-    getReadiness()
-      .then((nextReadiness) => { if (!cancelled) setReadiness(nextReadiness); })
+    Promise.all([
+      getReadiness(),
+      session ? getWorkspaceAiCapability(session).catch(() => null) : Promise.resolve(null),
+    ])
+      .then(([nextReadiness, capability]) => { if (!cancelled) setReadiness({ ...nextReadiness, ...capability }); })
       .catch(() => { if (!cancelled) setReadiness({ openAiConfigured: false }); });
     return () => { cancelled = true; };
-  }, []);
+  }, [session]);
 
   useEffect(() => () => {
     saveTimersRef.current.forEach((timer) => window.clearTimeout(timer));
@@ -220,6 +230,42 @@ export default function App() {
     }
   };
 
+  const handleLogin = async () => {
+    try {
+      setApiError('');
+      const result = await loginWorkspace({
+        email: accountEmail,
+        password: accountPassword,
+        ...(loginOrganizationId ? { organizationId: loginOrganizationId } : {}),
+      });
+      if (result.organizations) {
+        setLoginOrganizations(result.organizations);
+        setLoginOrganizationId('');
+        return;
+      }
+      setSession(result.session);
+      setOrganisationName(result.session.organization.name);
+      setAssessorName(result.session.user.displayName);
+      setLoginOrganizations([]);
+      setPersistenceStatus('Workspace connected');
+    } catch (error) {
+      setApiError(error.message);
+    }
+  };
+
+  const handleSignOut = () => {
+    clearSession();
+    setSession(null);
+    setAvailableAudits([]);
+    setAuditId(null);
+    setStarted(false);
+    setShowAdmin(false);
+    setApiError('');
+    setAccountPassword('');
+    setLoginOrganizations([]);
+    setLoginOrganizationId('');
+  };
+
   const persistScopeAndStart = async (nextView) => {
     if (!session) throw new Error('Create a workspace account before starting a server-backed audit.');
     let nextAuditId = auditId;
@@ -313,6 +359,20 @@ export default function App() {
 
   const handleDocumentDownload = (documentId) => downloadDocument(session, auditId, documentId);
 
+  const handleAdminSettingsSaved = () => {
+    if (session) getWorkspaceAiCapability(session).then((capability) => setReadiness((current) => ({ ...current, ...capability })));
+  };
+
+  const handleWorkspaceUpdated = (workspace) => {
+    setSession((current) => ({ ...current, organization: workspace }));
+    setOrganisationName(workspace.name);
+  };
+
+  const handleWorkspaceDeleted = () => {
+    handleSignOut();
+    setAuthMode('login');
+  };
+
   const handleGenerateAnswer = (item, refresh) => generateReferencedAnswer(
     session,
     auditId,
@@ -393,6 +453,42 @@ export default function App() {
     }
   };
 
+  if (showAdmin && session?.role === 'org_admin') {
+    return (
+      <AdminConsole
+        session={session}
+        onBack={() => setShowAdmin(false)}
+        onSettingsSaved={handleAdminSettingsSaved}
+        onWorkspaceUpdated={handleWorkspaceUpdated}
+        onWorkspaceDeleted={handleWorkspaceDeleted}
+        onAccessRevoked={handleSignOut}
+      />
+    );
+  }
+
+  if (!session) {
+    return (
+      <AuthEntry
+        mode={authMode}
+        onModeChange={(nextMode) => { setAuthMode(nextMode); setApiError(''); setLoginOrganizations([]); setLoginOrganizationId(''); }}
+        email={accountEmail}
+        onEmailChange={(value) => { setAccountEmail(value); setLoginOrganizations([]); setLoginOrganizationId(''); }}
+        password={accountPassword}
+        onPasswordChange={setAccountPassword}
+        displayName={assessorName}
+        onDisplayNameChange={setAssessorName}
+        organizationName={organisationName}
+        onOrganizationNameChange={setOrganisationName}
+        organizations={loginOrganizations}
+        organizationId={loginOrganizationId}
+        onOrganizationChange={setLoginOrganizationId}
+        onLogin={handleLogin}
+        onCreateWorkspace={handleRegisterWorkspace}
+        error={apiError}
+      />
+    );
+  }
+
   if (!started) {
     return (
       <div className="app-shell">
@@ -434,18 +530,6 @@ export default function App() {
                   placeholder="e.g. Acme Corp Ltd"
                 />
               </div>
-              {!session && (
-                <>
-                  <div className="form-group">
-                    <label htmlFor="account-email" className="form-label">Work Email</label>
-                    <input id="account-email" type="email" className="form-input" value={accountEmail} onChange={(e) => setAccountEmail(e.target.value)} placeholder="e.g. jane@acme.example" />
-                  </div>
-                  <div className="form-group">
-                    <label htmlFor="account-password" className="form-label">Workspace Password</label>
-                    <input id="account-password" type="password" minLength="12" className="form-input" value={accountPassword} onChange={(e) => setAccountPassword(e.target.value)} placeholder="At least 12 characters" />
-                  </div>
-                </>
-              )}
               <div className="form-group">
                 <label htmlFor="assessor-name" className="form-label">Assessor Name</label>
                 <input
@@ -487,10 +571,11 @@ export default function App() {
 
             <div className="start-actions">
               <button className="btn btn-secondary" onClick={() => importInputRef.current?.click()}>Import JSON</button>
-              {!session && <button className="btn btn-secondary" onClick={handleRegisterWorkspace}>Create Workspace</button>}
-              <button className="btn btn-primary btn-large" disabled={!session} onClick={() => { setStarted(true); setShowScope(true); }}>
+              {session?.role === 'org_admin' && <button className="btn btn-secondary" onClick={() => setShowAdmin(true)}>Admin console</button>}
+              <button className="btn btn-primary btn-large" onClick={() => { setStarted(true); setShowScope(true); }}>
                 Define Scope
               </button>
+              <button className="btn btn-secondary" onClick={handleSignOut}>Sign out</button>
             </div>
             {session && <p className="form-help">Connected as {session.user.display_name || session.user.displayName}.</p>}
             {availableAudits.length > 0 && (
@@ -514,6 +599,7 @@ export default function App() {
           <span className="app-logo-icon" aria-hidden="true">🛡️</span>
           <div><h1 className="app-title">DCC GDPR Readiness Guide</h1><p className="app-subtitle">Scope agreement and assessment preparation</p></div>
           <button className="btn btn-secondary btn-sm reset-btn" onClick={handleDownloadCheckpoint}>Save JSON</button>
+          {session?.role === 'org_admin' && <button className="btn btn-secondary btn-sm" onClick={() => setShowAdmin(true)}>Admin</button>}
         </header>
         <ScopingWizard
           scope={scope}
@@ -535,6 +621,7 @@ export default function App() {
           <span className="app-logo-icon" aria-hidden="true">🛡️</span>
           <div><h1 className="app-title">DCC GDPR Readiness Guide</h1><p className="app-subtitle">Scope agreement and assessment preparation</p></div>
           <button className="btn btn-secondary btn-sm reset-btn" onClick={handleDownloadCheckpoint}>Save JSON</button>
+          {session?.role === 'org_admin' && <button className="btn btn-secondary btn-sm" onClick={() => setShowAdmin(true)}>Admin</button>}
         </header>
         <ScopeAttestation
           organisationName={organisationName}
@@ -561,6 +648,7 @@ export default function App() {
           <button className="btn btn-danger btn-sm reset-btn" onClick={handleReset}>
             New Audit
           </button>
+          {session?.role === 'org_admin' && <button className="btn btn-secondary btn-sm" onClick={() => setShowAdmin(true)}>Admin</button>}
         </header>
         <main className="report-main">
           <AuditReport
@@ -594,6 +682,7 @@ export default function App() {
           <p className="app-subtitle">{levelConfig.title} — {levelConfig.subtitle}</p>
         </div>
         <button className="btn btn-secondary btn-sm" onClick={handleDownloadCheckpoint}>Save JSON</button>
+        {session?.role === 'org_admin' && <button className="btn btn-secondary btn-sm" onClick={() => setShowAdmin(true)}>Admin</button>}
         <button className="btn btn-danger btn-sm reset-btn" onClick={handleReset}>
           New Audit
         </button>

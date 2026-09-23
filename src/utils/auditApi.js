@@ -120,6 +120,54 @@ export function getReadiness() {
   return request('/ready');
 }
 
+export function getWorkspaceAiCapability(session) {
+  return request('/workspace/ai-capability', { token: session.token });
+}
+
+export function getAdminAiSettings(session) {
+  return request('/admin/ai-settings', { token: session.token });
+}
+
+export function saveAdminAiSettings(session, settings) {
+  return request('/admin/ai-settings', { token: session.token, method: 'PUT', body: settings });
+}
+
+export function testAdminAiSettings(session, settings) {
+  return request('/admin/ai-settings/test', { token: session.token, method: 'POST', body: settings });
+}
+
+export function listAdminDocuments(session) {
+  return request('/admin/documents', { token: session.token });
+}
+
+export function getAdminWorkspace(session) {
+  return request('/admin/workspace', { token: session.token });
+}
+
+export function renameAdminWorkspace(session, name) {
+  return request('/admin/workspace', { token: session.token, method: 'PATCH', body: { name } });
+}
+
+export function deleteAdminWorkspace(session, confirmName) {
+  return request('/admin/workspace', { token: session.token, method: 'DELETE', body: { confirmName } });
+}
+
+export function listAdminMembers(session) {
+  return request('/admin/members', { token: session.token });
+}
+
+export function createAdminMember(session, member) {
+  return request('/admin/members', { token: session.token, method: 'POST', body: member });
+}
+
+export function updateAdminMemberRole(session, userId, role) {
+  return request(`/admin/members/${userId}`, { token: session.token, method: 'PATCH', body: { role } });
+}
+
+export function removeAdminMember(session, userId) {
+  return request(`/admin/members/${userId}`, { token: session.token, method: 'DELETE' });
+}
+
 export function getReferencedAnswer(session, auditId, questionId) {
   return request(`/audits/${auditId}/questions/${encodeURIComponent(questionId)}/answer`, { token: session.token });
 }
@@ -176,4 +224,17 @@ export async function downloadEvidencePackage(session, auditId, packageId) {
   link.download = `evidence-package-${packageId}.zip`;
   link.click();
   URL.revokeObjectURL(url);
+}
+
+export async function loginWorkspace(credentials) {
+  const response = await request('/auth/login', { method: 'POST', body: credentials });
+  if (!response.token) return response;
+  const session = {
+    token: response.token,
+    user: response.user,
+    organization: response.organization,
+    role: response.role,
+  };
+  saveSession(session);
+  return { session };
 }

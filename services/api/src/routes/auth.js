@@ -19,6 +19,7 @@ export async function authRoutes(app, { database }) {
     try {
       const account = await authenticateUser(database, request.body || {});
       if (!account) return reply.code(401).send({ error: 'Invalid email, password, or organization.' });
+      if (account.organizations) return account;
       const token = await reply.jwtSign({
         sub: account.user.id,
         organizationId: account.organizationId,

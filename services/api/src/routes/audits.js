@@ -1,4 +1,6 @@
 import { generateCitedAnswer, getCorpusVersion, getCurrentAnswer, getLatestAnswer, getLatestAnswers } from '../ragService.js';
+import { resolveOrganizationAiConfig } from '../secretStorage.js';
+import { createMembershipGuard } from '../routeAuth.js';
 
 const permittedRoles = new Set(['org_admin', 'assessor']);
 
@@ -12,18 +14,12 @@ function requireSelectedLevel(value) {
   return value;
 }
 
-async function requireMembership(request, reply) {
-  await request.jwtVerify();
-  if (!request.user.organizationId || !request.user.sub) {
-    return reply.code(401).send({ error: 'Invalid session.' });
-  }
-}
-
 function requireEditor(request) {
   if (!permittedRoles.has(request.user.role)) throw new Error('Your role cannot modify audits.');
 }
 
 export async function auditRoutes(app, { config, database }) {
+  const requireMembership = createMembershipGuard(database);
   app.get('/api/audits', { preHandler: requireMembership }, async (request) => {
     const audits = await database.query(
       `SELECT id, title, selected_level, status, scope, attested_at, completed_at, created_at, updated_at
@@ -113,7 +109,8 @@ export async function auditRoutes(app, { config, database }) {
     if (audit.rowCount === 0) return reply.code(404).send({ error: 'Audit not found.' });
     const corpusVersion = await getCorpusVersion(database, request.user.organizationId, request.params.auditId);
     const answer = await getLatestAnswer(database, request.user.organizationId, request.params.auditId, request.params.questionId, corpusVersion);
-    return { answer, answerAvailable: Boolean(config.openAiApiKey) };
+    const aiConfig = await resolveOrganizationAiConfig(database, config, request.user.organizationId);
+    return { answer, answerAvailable: Boolean(aiConfig.openAiApiKey) };
   });
 
   app.get('/api/audits/:auditId/referenced-answers', { preHandler: requireMembership }, async (request, reply) => {
@@ -127,17 +124,18 @@ export async function auditRoutes(app, { config, database }) {
   app.post('/api/audits/:auditId/questions/:questionId/answer', { preHandler: requireMembership }, async (request, reply) => {
     try {
       requireEditor(request);
-      if (!config.openAiApiKey) return reply.code(503).send({ error: 'Referenced answers are not configured for this workspace.' });
       const { question, refresh = false } = request.body || {};
       const audit = await database.query('SELECT id FROM audits WHERE id = $1 AND organization_id = $2', [request.params.auditId, request.user.organizationId]);
       if (audit.rowCount === 0) return reply.code(404).send({ error: 'Audit not found.' });
+      const aiConfig = await resolveOrganizationAiConfig(database, config, request.user.organizationId);
+      if (!aiConfig.openAiApiKey) return reply.code(503).send({ error: 'Referenced answers are not configured for this workspace.' });
       const corpusVersion = await getCorpusVersion(database, request.user.organizationId, request.params.auditId);
       if (!refresh) {
         const cached = await getCurrentAnswer(database, request.user.organizationId, request.params.auditId, request.params.questionId, corpusVersion);
         if (cached) return { answer: cached, cached: true };
       }
       const generated = await generateCitedAnswer({
-        config, database, organizationId: request.user.organizationId, auditId: request.params.auditId,
+        config: aiConfig, database, organizationId: request.user.organizationId, auditId: request.params.auditId,
         questionId: request.params.questionId, question: requireText(question, 'Question'),
       });
       return { answer: generated, cached: false };

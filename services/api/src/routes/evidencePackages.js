@@ -1,16 +1,10 @@
 import { Queue } from 'bullmq';
 import { createEvidencePackageJob, EVIDENCE_PACKAGE_QUEUE } from '@ca-dcc/shared';
 import { getCorpusVersion, getLatestAnswers } from '../ragService.js';
+import { createMembershipGuard } from '../routeAuth.js';
 
 function safeDownloadFilename(filename) {
   return filename.replace(/[\\/:*?"<>|\r\n]/g, '_').replace(/^\.+/, '') || 'audit-evidence-package.zip';
-}
-
-async function requireMembership(request, reply) {
-  await request.jwtVerify();
-  if (!request.user.organizationId || !request.user.sub) {
-    return reply.code(401).send({ error: 'Invalid session.' });
-  }
 }
 
 async function buildReportManifest(database, organizationId, auditId) {
@@ -54,6 +48,7 @@ function packageSummary(row) {
 }
 
 export async function evidencePackageRoutes(app, { config, database, storage }) {
+  const requireMembership = createMembershipGuard(database);
   const queue = new Queue(EVIDENCE_PACKAGE_QUEUE, { connection: { url: config.redisUrl } });
   app.addHook('onClose', async () => queue.close());
 
