@@ -1,51 +1,38 @@
-import { getLevelConfig, SCOPING_FIELDS } from '../data/auditSteps';
+import { useState } from 'react';
+import { getLevelConfig } from '../data/auditSteps';
+import { buildScopeDiagramSvg } from '../utils/scopeDiagrams';
+
+function Value({ label, value }) { return <div className="attestation-field"><h3>{label}</h3><p>{value?.trim() || 'Not provided — confirm before formal submission.'}</p></div>; }
+function Rows({ title, rows, fields }) { return <section className="attestation-table-section"><h2>{title}</h2><div className="attestation-table-scroll"><table><thead><tr>{fields.map((field) => <th key={field.key}>{field.label}</th>)}</tr></thead><tbody>{rows.length ? rows.map((row, index) => <tr key={`${title}-${index}`}>{fields.map((field) => <td key={field.key}>{row[field.key]?.trim() || 'Not provided'}</td>)}</tr>) : <tr><td colSpan={fields.length}>No entries recorded</td></tr>}</tbody></table></div></section>; }
 
 export default function ScopeAttestation({ organisationName, assessorName, auditDate, scope, selectedLevel, onBack, onStartAudit }) {
   const level = getLevelConfig(selectedLevel);
-
-  return (
-    <main className="report-main">
-      <section className="attestation-document" aria-labelledby="attestation-title">
-        <header className="attestation-header">
-          <p className="eyebrow">DCC assessment scoping record</p>
-          <h1 id="attestation-title">Certificate of Attestation</h1>
-          <p>This document records the assessment boundary agreed for assessor handover. It does not record a compliance outcome or award certification.</p>
-        </header>
-
-        <dl className="attestation-meta">
-          <div><dt>Organisation</dt><dd>{organisationName || 'Not recorded'}</dd></div>
-          <div><dt>Assessor</dt><dd>{assessorName || 'Not recorded'}</dd></div>
-          <div><dt>Assessment date</dt><dd>{auditDate || 'Not recorded'}</dd></div>
-          <div><dt>Assessment level</dt><dd>{level.title} - {level.subtitle}</dd></div>
-        </dl>
-
-        <section className="attestation-scope">
-          <h2>Agreed scope</h2>
-          {SCOPING_FIELDS.map((field) => (
-            <div className="attestation-field" key={field.id}>
-              <h3>{field.label}</h3>
-              <p>{scope[field.id] || 'Not recorded'}</p>
-            </div>
-          ))}
-        </section>
-
-        <section className="attestation-declaration">
-          <h2>Declaration</h2>
-          <p>
-            The organisation and assessor confirm that the scope above accurately describes the intended assessment boundary. Changes to this boundary must be documented and agreed before the assessment is finalised.
-          </p>
-          <div className="signature-grid">
-            <div><span>Applicant representative</span></div>
-            <div><span>Assessor</span></div>
-          </div>
-        </section>
-
-        <div className="report-actions no-print">
-          <button className="btn btn-secondary" onClick={onBack}>Back to Scope</button>
-          <button className="btn btn-secondary" onClick={() => window.print()}>Print / Save as PDF</button>
-          <button className="btn btn-primary" onClick={onStartAudit}>Begin {level.title} Audit</button>
-        </div>
-      </section>
-    </main>
-  );
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState('');
+  const exportDocx = async () => { try { setExporting(true); setExportError(''); const { downloadScopeAttestationDocx } = await import('../utils/scopeAttestationDocx'); await downloadScopeAttestationDocx({ scope, level, organisationName, assessorName, auditDate }); } catch (error) { setExportError(error.message || 'Unable to create the Word attestation.'); } finally { setExporting(false); } };
+  const statement = scope.declaration.statement || `I, ${scope.declaration.signatoryName || '[Authorised signatory]'}, ${scope.declaration.signatoryTitle || '[Title / position]'}, am authorised to make this statement on behalf of ${scope.organisation.legalName || organisationName || '[Organisation]'}. I attest that the statements in this ${level.title} scoping document are accurate and complete, that no material facts have been omitted or misrepresented, and that all essential services, networks, identities and functions needed for normal business activities and contracted outputs are represented in the scope below.`;
+  return <main className="report-main"><article className="attestation-document" aria-labelledby="attestation-title">
+    <header className="attestation-header"><p className="eyebrow">Defence Cyber Certification (DCC)</p><h1 id="attestation-title">{level.title} Scoping Attestation</h1><p>Scope boundary and certification alignment · Generated from applicant-provided information</p></header>
+    <Rows title="Organisation and assessment details" rows={[
+      { label: 'Organisation name', value: scope.organisation.legalName || organisationName }, { label: 'Company registration number', value: scope.organisation.companyNumber }, { label: 'Registered address', value: scope.organisation.registeredAddress }, { label: 'DCC certification level', value: `${level.title} — ${level.subtitle}` }, { label: 'DCC application reference', value: scope.organisation.applicationReference }, { label: 'Certification scope', value: scope.service.certificationScope }, { label: 'Document version and date', value: `Version ${scope.organisation.documentVersion || '1.0'} — ${scope.organisation.documentDate || auditDate}` }, { label: 'Assessor / assessment body', value: `${scope.organisation.assessor || assessorName || 'Not recorded'} / ${scope.organisation.assessmentBody || 'Not recorded'}` },
+    ]} fields={[{ key: 'label', label: 'Detail' }, { key: 'value', label: 'Value' }]} />
+    <section className="attestation-scope"><h2>Context and scoping alignment</h2><p>This document records the organisation’s declared DCC assessment boundary, related certification boundaries, included systems and assets, exclusions and authorisation. Information is applicant supplied and should be confirmed with the assessment body.</p><h2>Attestation statement</h2><p className="attestation-declaration-text">{statement}</p><h2>Scope purpose and rationale</h2><Value label="In-scope service or activity" value={scope.service.description} /><Value label="Essential functions" value={scope.service.essentialFunctions} /><Value label="Contracted outputs" value={scope.service.contractedOutputs} /><Value label="Scope rationale" value={scope.service.rationale} /></section>
+    <Rows title="(a) Sites and their operational functions" rows={scope.sites} fields={[{ key: 'name', label: 'Site / location' }, { key: 'function', label: 'Operational function and boundary details' }]} />
+    <Rows title="(b) IT networks and systems" rows={scope.systems} fields={[{ key: 'name', label: 'Network / platform' }, { key: 'purpose', label: 'Implementation and purpose' }]} />
+    <section className="attestation-scope"><h2>(c) Operational technology (OT) networks and systems</h2><p>{scope.ot.operates === 'no' ? 'The organisation declares that it does not operate OT, ICS or SCADA platforms within this scope. ' : `OT operating status: ${scope.ot.operates || 'Not confirmed'}. `}{scope.ot.details || 'Details not provided.'}</p></section>
+    <Rows title="(d) Devices and assets" rows={scope.assets} fields={[{ key: 'name', label: 'Device classification' }, { key: 'quantity', label: 'Quantity' }, { key: 'details', label: 'OS and management state' }]} />
+    <Rows title="(e) Data and document storage" rows={scope.dataStorage} fields={[{ key: 'name', label: 'Repository / storage' }, { key: 'details', label: 'Purpose, location, protection and retention' }]} />
+    <section className="attestation-scope"><h2>(f) Scoping architecture and boundary diagrams</h2><p>Diagrams generated from the applicant’s entries. Diagram categories do not infer technical connections; the relationship description is applicant supplied.</p><figure className="attestation-diagram"><img src={`data:image/svg+xml;charset=utf-8,${encodeURIComponent(buildScopeDiagramSvg(scope, 'boundary'))}`} alt="DCC and CE / CE+ scope boundary diagram" /><figcaption>(i) DCC and Cyber Essentials scope boundary</figcaption></figure><Value label="Declared CE / CE+ boundary" value={scope.boundaries.inCyberEssentials} /><Value label="Boundary relationship and diagram notes" value={`${scope.boundaries.overlap}\n${scope.boundaries.overlapExplanation}\n${scope.diagram.dccCeCoterminous}`} /></section>
+    <Rows title="Scope definition and boundary alignment" rows={[{ included: scope.boundaries.inDcc, excluded: scope.boundaries.exclusions.length ? scope.boundaries.exclusions.map((row) => `${row.name}: ${row.rationale}`).join('\n') : 'Not provided — confirm exclusions or record none' }]} fields={[{ key: 'included', label: 'In scope (DCC)' }, { key: 'excluded', label: 'Out of scope and rationale' }]} />
+    <section className="attestation-scope"><h2>(ii) Systems, networks, assets and relationships</h2><figure className="attestation-diagram"><img src={`data:image/svg+xml;charset=utf-8,${encodeURIComponent(buildScopeDiagramSvg(scope, 'architecture'))}`} alt="Declared sites, systems, assets and storage diagram" /><figcaption>Declared scope components (categories do not imply connections)</figcaption></figure><Value label="Applicant description of relationships" value={scope.diagram.relationships} /></section>
+    <Rows title="(iii) Boundary coterminous matrix" rows={[
+      { relationship: 'In DCC scope, not in CE/CE+ scope', content: scope.boundaries.coterminousMatrix.dccOnly }, { relationship: 'In CE/CE+ scope, not in DCC scope', content: scope.boundaries.coterminousMatrix.ceOnly }, { relationship: 'In both scopes', content: scope.boundaries.coterminousMatrix.both }, { relationship: 'In neither scope', content: scope.boundaries.coterminousMatrix.neither },
+    ]} fields={[{ key: 'relationship', label: 'Relationship' }, { key: 'content', label: 'Scope content' }]} />
+    <Rows title="Certification currency and maintenance" rows={[
+      { framework: 'Cyber Essentials', scope: scope.certifications.cyberEssentials.scope, status: `${scope.certifications.cyberEssentials.status} · ${scope.certifications.cyberEssentials.reference} · renew ${scope.certifications.cyberEssentials.renewalDate}` }, { framework: 'Cyber Essentials Plus', scope: scope.certifications.cyberEssentialsPlus.scope, status: `${scope.certifications.cyberEssentialsPlus.status} · ${scope.certifications.cyberEssentialsPlus.reference} · renew ${scope.certifications.cyberEssentialsPlus.renewalDate}` }, { framework: 'Defence Cyber Certification', scope: scope.service.certificationScope, status: scope.certifications.dccReference || scope.organisation.applicationReference },
+    ]} fields={[{ key: 'framework', label: 'Framework' }, { key: 'scope', label: 'Scope boundary' }, { key: 'status', label: 'Status / reference' }]} />
+    <section className="attestation-declaration"><h2>Declaration and authorisation</h2><p>I understand that a material omission or misleading statement may affect assessment validity. I confirm the information is complete to the best of my knowledge and undertake to report material changes to the declared scope. I also confirm that the organisation will maintain any required Cyber Essentials certification for the duration of the relevant activity and DCC certification period.</p><Value label="Additional declaration notes" value={scope.declaration.additionalDeclaration} /><div className="signature-grid"><div><span>Authorised signature</span></div><div><span>Full name: {scope.declaration.signatoryName || 'Not provided'}</span></div><div><span>Title / position: {scope.declaration.signatoryTitle || 'Not provided'}</span></div><div><span>Date: {scope.declaration.signatureDate || auditDate || 'Not provided'}</span></div></div></section>
+    {exportError && <p className="form-error no-print" role="alert">{exportError}</p>}
+    <div className="report-actions no-print"><button className="btn btn-secondary" onClick={onBack}>Edit scoping answers</button><button className="btn btn-secondary" onClick={() => window.print()}>Print / Save as PDF</button><button className="btn btn-primary" disabled={exporting} onClick={exportDocx}>{exporting ? 'Creating Word document…' : 'Download Word document'}</button><button className="btn btn-primary" onClick={onStartAudit}>Begin {level.title} Audit</button></div>
+  </article></main>;
 }

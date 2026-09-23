@@ -1,60 +1,95 @@
-import { LEVEL_CONFIGS, SCOPING_FIELDS } from '../data/auditSteps';
-import EvidencePack from './EvidencePack';
+import { LEVEL_CONFIGS } from '../data/auditSteps';
+import { scopeHasRequiredContent } from '../utils/scopeModel';
+import { buildScopeDiagramSvg } from '../utils/scopeDiagrams';
 
-export default function ScopingWizard({ scope, selectedLevel, onScopeChange, onLevelChange, onBack, onContinue, onSkip }) {
-  const selectedConfig = LEVEL_CONFIGS[selectedLevel];
-  const isComplete = SCOPING_FIELDS.every((field) => scope[field.id]?.trim());
+const steps = [
+  { title: 'Organisation details', description: 'Identify the legal organisation, application and assessment contacts.' },
+  { title: 'Service and scope statement', description: 'Describe the business activity and the essential functions and outputs the boundary must protect.' },
+  { title: 'Sites and work locations', description: 'Include operational sites, registered offices, remote workers and assets in transit.' },
+  { title: 'Networks and systems', description: 'Record platforms, networks and identity or security services in the boundary.' },
+  { title: 'Operational technology', description: 'Tell us whether OT, ICS or SCADA is operated in the declared business scope.' },
+  { title: 'Devices and assets', description: 'Describe asset types, approximate quantities and management state.' },
+  { title: 'Data and storage', description: 'Include cloud repositories, backups, infrastructure, local and physical storage.' },
+  { title: 'Inclusions and exclusions', description: 'Define DCC and CE/CE+ boundaries. Give a reason for each formal exclusion.' },
+  { title: 'Diagrams and relationships', description: 'Review the reference diagrams and describe the actual connections and certification overlap.' },
+  { title: 'Certifications', description: 'Record certification scope, reference and currency. Enter “Not held” when relevant.' },
+  { title: 'Review and authorisation', description: 'Review all sections and identify the authorised person making this attestation.' },
+];
 
-  return (
-    <main className="wizard-main scope-main">
-      <section className="wizard-step" aria-labelledby="scope-title">
-        <header className="step-header">
-          <p className="eyebrow">Assessment scoping</p>
-          <h2 id="scope-title" className="step-title">Define the assessment boundary</h2>
-          <p className="step-description">
-            Record the agreed scope before beginning the audit. These details form the Certificate of Attestation for the assessor.
-          </p>
-        </header>
+const listDefinitions = {
+  sites: { title: 'Sites', fields: [['name', 'Site / location'], ['function', 'Operational function and boundary details']] },
+  systems: { title: 'Networks and systems', fields: [['name', 'Network / platform'], ['purpose', 'Implementation and purpose']] },
+  assets: { title: 'Devices and assets', fields: [['name', 'Device classification'], ['quantity', 'Quantity'], ['details', 'OS and management state']], initial: { quantity: 'Not recorded' } },
+  dataStorage: { title: 'Data and storage', fields: [['name', 'Repository / storage type'], ['details', 'Purpose, location, protection and retention']] },
+  exclusions: { title: 'Formal exclusions', path: 'boundaries', fields: [['name', 'Excluded entity, service or asset'], ['rationale', 'Why this is outside the boundary']] },
+};
+const certificationLabels = [['cyberEssentials', 'Cyber Essentials'], ['cyberEssentialsPlus', 'Cyber Essentials Plus']];
 
-        <div className="scope-form">
-          <div className="form-group">
-            <label className="form-label" htmlFor="scope-level">Assessment level</label>
-            <select id="scope-level" className="form-input" value={selectedLevel} onChange={(event) => onLevelChange(Number(event.target.value))}>
-              {Object.values(LEVEL_CONFIGS).map((level) => (
-                <option key={level.id} value={level.id} disabled={!level.available}>
-                  {level.title} - {level.subtitle}{!level.available ? ' (source transcription pending)' : ''}
-                </option>
-              ))}
-            </select>
-            <p className="form-help">Source: {selectedConfig.source}</p>
-          </div>
+function Field({ label, value, onChange, multiline = false, required = false, help }) {
+  return <label className="form-group scope-guided-field"><span className="form-label">{label}{required && <span aria-hidden="true"> *</span>}</span>{multiline ? <textarea className="notes-textarea" rows={3} value={value || ''} onChange={(event) => onChange(event.target.value)} /> : <input className="form-input" value={value || ''} onChange={(event) => onChange(event.target.value)} />}{help && <span className="form-help">{help}</span>}</label>;
+}
 
-          {SCOPING_FIELDS.map((field) => (
-            <div className="form-group" key={field.id}>
-              <label className="form-label" htmlFor={`scope-${field.id}`}>{field.label}</label>
-              <textarea
-                id={`scope-${field.id}`}
-                className="notes-textarea"
-                rows={3}
-                value={scope[field.id] || ''}
-                onChange={(event) => onScopeChange(field.id, event.target.value)}
-                aria-describedby={`scope-help-${field.id}`}
-              />
-              <p id={`scope-help-${field.id}`} className="form-help">{field.help}</p>
-            </div>
-          ))}
+function EditableRows({ scope, listName, onChange }) {
+  const definition = listDefinitions[listName];
+  const target = definition.path ? scope[definition.path] : scope;
+  const rows = target[listName] || [];
+  const setRows = (next) => definition.path
+    ? onChange({ ...target, [listName]: next }, definition.path)
+    : onChange({ ...scope, [listName]: next });
+  return <section className="scope-repeatable"><header><div><h3>{definition.title}</h3><p className="form-help">Add one entry for each distinct boundary item. You can add more at any time.</p></div><button type="button" className="btn btn-secondary btn-sm" onClick={() => setRows([...rows, { ...(definition.initial || {}), name: '', ...Object.fromEntries(definition.fields.slice(1).map(([key]) => [key, ''])) }])}>Add {definition.title.slice(0, -1)}</button></header>
+    {rows.length === 0 && <p className="scope-empty-hint">No entries yet. Add an entry, or record “None” where the section does not apply.</p>}
+    {rows.map((row, index) => <fieldset className="scope-repeatable-row" key={`${listName}-${index}`}><legend>{definition.title.slice(0, -1)} {index + 1}</legend>{definition.fields.map(([key, label]) => <Field key={key} label={label} value={row[key]} multiline={key !== 'quantity'} onChange={(value) => setRows(rows.map((item, rowIndex) => rowIndex === index ? { ...item, [key]: value } : item))} />)}<button type="button" className="btn btn-secondary btn-sm" onClick={() => setRows(rows.filter((_, rowIndex) => rowIndex !== index))}>Remove entry</button></fieldset>)}
+  </section>;
+}
 
-          <EvidencePack levelConfig={selectedConfig} />
-        </div>
+function EditableConnections({ connections, onChange }) {
+  const fields = [['from', 'From component'], ['to', 'To component'], ['purpose', 'Connection / purpose']];
+  return <section className="scope-repeatable"><header><div><h3>Declared system connections</h3><p className="form-help">Add each relationship shown in your architecture. Entries are plotted as you describe them; the guide does not infer or auto-connect components.</p></div><button type="button" className="btn btn-secondary btn-sm" onClick={() => onChange([...connections, { from: '', to: '', purpose: '' }])}>Add connection</button></header>{connections.length === 0 && <p className="scope-empty-hint">No links recorded. Add connections above, or describe why no links apply in your relationship notes.</p>}{connections.map((item, index) => <fieldset className="scope-repeatable-row" key={`connection-${index}`}><legend>Connection {index + 1}</legend>{fields.map(([key, label]) => <Field key={key} label={label} value={item[key]} onChange={(value) => onChange(connections.map((row, rowIndex) => rowIndex === index ? { ...row, [key]: value } : row))} />)}<button type="button" className="btn btn-secondary btn-sm" onClick={() => onChange(connections.filter((_, rowIndex) => rowIndex !== index))}>Remove connection</button></fieldset>)}</section>;
+}
 
-        <div className="wizard-nav">
-          <button className="btn btn-secondary" onClick={onBack}>Back</button>
-          <button className="btn btn-secondary" onClick={onSkip}>Skip Scoping</button>
-          <button className="btn btn-primary" onClick={onContinue} disabled={!isComplete}>
-            Review Certificate of Attestation
-          </button>
-        </div>
-      </section>
-    </main>
-  );
+export default function ScopingWizard({ scope, selectedLevel, onScopeChange, onLevelChange, onBack, onContinue, onOpenEvidence, currentSection, onSectionChange, error }) {
+  const stepIndex = currentSection;
+  const config = LEVEL_CONFIGS[selectedLevel];
+  const current = steps[stepIndex];
+  const update = (group, key, value) => onScopeChange({ ...scope, [group]: { ...scope[group], [key]: value } });
+  const simpleField = (group, key, label, opts = {}) => <Field label={label} value={scope[group][key]} required={opts.required} multiline={opts.multiline} help={opts.help} onChange={(value) => update(group, key, value)} />;
+  const reviewChecks = [
+    ['Company registration number', scope.organisation.companyNumber, 0], ['Registered address', scope.organisation.registeredAddress, 0], ['DCC application reference', scope.organisation.applicationReference, 0], ['Document version and date', `${scope.organisation.documentVersion}${scope.organisation.documentDate}`, 0], ['Assessor name', scope.organisation.assessor, 0], ['Assessment body', scope.organisation.assessmentBody, 0],
+    ['Contracted outputs', scope.service.contractedOutputs, 1], ['Scope rationale', scope.service.rationale, 1],
+    ['At least one site or explicit “None” entry', scope.sites.length ? 'recorded' : '', 2], ...scope.sites.flatMap((row, index) => [[`Site ${index + 1}: name`, row.name, 2], [`Site ${index + 1}: operational function`, row.function, 2]]),
+    ['At least one system or explicit “None” entry', scope.systems.length ? 'recorded' : '', 3], ...scope.systems.flatMap((row, index) => [[`System ${index + 1}: name`, row.name, 3], [`System ${index + 1}: purpose`, row.purpose, 3]]),
+    ['OT operating status confirmed', scope.ot.operates && scope.ot.operates !== 'unknown' ? scope.ot.operates : '', 4], ['OT status and details', scope.ot.operates && scope.ot.details, 4],
+    ['At least one asset class or explicit “None” entry', scope.assets.length ? 'recorded' : '', 5], ...scope.assets.flatMap((row, index) => [[`Asset ${index + 1}: classification`, row.name, 5], [`Asset ${index + 1}: quantity`, row.quantity, 5], [`Asset ${index + 1}: management state`, row.details, 5]]),
+    ['At least one storage type or explicit “None” entry', scope.dataStorage.length ? 'recorded' : '', 6], ...scope.dataStorage.flatMap((row, index) => [[`Storage ${index + 1}: type`, row.name, 6], [`Storage ${index + 1}: purpose / protection`, row.details, 6]]),
+    ['CE / CE+ declared boundary', scope.boundaries.inCyberEssentials, 7],
+    ['At least one exclusion or explicit “None” entry', scope.boundaries.exclusions.length ? 'recorded' : '', 7],
+    ...scope.boundaries.exclusions.flatMap((row, index) => [[`Exclusion ${index + 1}: item`, row.name, 7], [`Exclusion ${index + 1}: rationale`, row.rationale, 7]]),
+    ...Object.entries(scope.boundaries.coterminousMatrix).map(([key, value]) => [`Boundary matrix: ${key}`, value, 7]),
+    ['Boundary relationship description', scope.diagram.dccCeCoterminous, 8], ['Architecture relationships', scope.diagram.relationships, 8],
+    ['Cyber Essentials status or “Not held”', scope.certifications.cyberEssentials.status, 9], ['Cyber Essentials scope / reference / renewal', `${scope.certifications.cyberEssentials.scope}${scope.certifications.cyberEssentials.reference}${scope.certifications.cyberEssentials.renewalDate}`, 9],
+    ['Cyber Essentials Plus status or “Not held”', scope.certifications.cyberEssentialsPlus.status, 9], ['Cyber Essentials Plus scope / reference / renewal', `${scope.certifications.cyberEssentialsPlus.scope}${scope.certifications.cyberEssentialsPlus.reference}${scope.certifications.cyberEssentialsPlus.renewalDate}`, 9],
+    ['DCC reference', scope.certifications.dccReference || scope.organisation.applicationReference, 9],
+    ['Authorised signatory name', scope.declaration.signatoryName, 10], ['Authorised signatory title', scope.declaration.signatoryTitle, 10],
+  ];
+  const missingReviewChecks = reviewChecks.filter(([, value]) => !String(value || '').trim());
+  const coreScopeComplete = scopeHasRequiredContent(scope);
+
+  return <main className="scope-guided-main"><section className="scope-guided-shell" aria-labelledby="scope-title">
+    <header className="scope-guided-header"><p className="eyebrow">Guided DCC attestation · {config.title}</p><h1 id="scope-title">{current.title}</h1><p>{current.description}</p></header>
+    {error && <p className="form-error scope-save-error" role="alert">Scope save failed: {error}. Your current answers remain on screen; retry by changing an answer or reviewing the attestation.</p>}
+    <nav className="scope-step-nav" aria-label="Attestation sections">{steps.map((step, index) => <button type="button" key={step.title} aria-current={stepIndex === index ? 'step' : undefined} className={stepIndex === index ? 'is-current' : index < stepIndex ? 'is-complete' : ''} onClick={() => onSectionChange(index)}><span>{index + 1}</span>{step.title}</button>)}</nav>
+    <div className="scope-guided-content">
+      {stepIndex === 0 && <><div className="form-group"><label className="form-label" htmlFor="scope-level">DCC Certification Level</label><select id="scope-level" className="form-input" value={selectedLevel} onChange={(event) => onLevelChange(Number(event.target.value))}>{Object.values(LEVEL_CONFIGS).map((level) => <option key={level.id} value={level.id} disabled={!level.available}>{level.title} - {level.subtitle}{!level.available ? ' (source transcription pending)' : ''}</option>)}</select><p className="form-help">Official source: {config.source}</p></div>
+        {simpleField('organisation', 'legalName', 'Legal organisation name', { required: true })}{simpleField('organisation', 'companyNumber', 'Company registration number')}{simpleField('organisation', 'registeredAddress', 'Registered address', { multiline: true })}{simpleField('organisation', 'applicationReference', 'DCC application reference')}{simpleField('organisation', 'documentVersion', 'Document version')}{simpleField('organisation', 'documentDate', 'Document date')}{simpleField('organisation', 'assessor', 'Assessor name', { help: 'Defaults to the assessor signed in to the readiness guide.' })}{simpleField('organisation', 'assessmentBody', 'Accredited assessment body')}{simpleField('service', 'certificationScope', 'Certification scope label', { help: 'For example, whole organisation or a defined business unit.' })}</>}
+      {stepIndex === 1 && <>{simpleField('service', 'description', 'In-scope service, product or business activity', { required: true, multiline: true, help: 'Name the service and the legal or operational boundary it belongs to.' })}{simpleField('service', 'essentialFunctions', 'Essential services, networks, identities and functions', { required: true, multiline: true, help: 'What must be protected for normal business operations to continue?' })}{simpleField('service', 'contractedOutputs', 'Contracted outputs and customer commitments', { multiline: true })}{simpleField('service', 'rationale', 'Why this boundary represents the assessment scope', { multiline: true })}</>}
+      {[2,3,5,6].includes(stepIndex) && <EditableRows scope={scope} listName={{ 2: 'sites', 3: 'systems', 5: 'assets', 6: 'dataStorage' }[stepIndex]} onChange={onScopeChange} />}
+      {stepIndex === 4 && <><fieldset className="scope-radio-group"><legend>Does the organisation operate OT, ICS or SCADA in this business scope?</legend>{[['yes','Yes'],['no','No'],['unknown','Not confirmed']].map(([value,label]) => <label key={value}><input type="radio" name="ot-operates" checked={scope.ot.operates === value} onChange={() => update('ot','operates',value)} />{label}</label>)}</fieldset>{simpleField('ot', 'details', 'Systems, purpose, dependencies or confirmation basis', { required: true, multiline: true, help: 'If none operate, explain the basis for that statement. If unknown, record who will confirm.' })}</>}
+      {stepIndex === 7 && <>{simpleField('boundaries', 'inDcc', 'What is included in the DCC scope?', { required: true, multiline: true })}{simpleField('boundaries', 'inCyberEssentials', 'What is included in CE / CE+ scope?', { multiline: true })}<EditableRows scope={scope} listName="exclusions" onChange={(value) => onScopeChange(value, 'boundaries')} /><h3>Boundary coterminous matrix</h3><p className="form-help">List the systems, services or assets in each relationship. Enter “None” if a category is empty.</p>{[['dccOnly','In DCC scope, not in CE/CE+ scope'],['ceOnly','In CE/CE+ scope, not in DCC scope'],['both','In both scopes'],['neither','In neither scope']].map(([key,label]) => <Field key={key} label={label} value={scope.boundaries.coterminousMatrix[key]} multiline required onChange={(value) => update('boundaries','coterminousMatrix',{ ...scope.boundaries.coterminousMatrix, [key]: value })} />)}{simpleField('boundaries', 'overlap', 'How do the DCC and CE/CE+ boundaries relate?', { required: true, multiline: true, help: 'State whether they are coterminous, overlap partly, or differ. Explain any differences.' })}{simpleField('boundaries', 'overlapExplanation', 'Overlap and difference explanation', { multiline: true })}</>}
+      {stepIndex === 8 && <><p className="form-help">These diagrams update from your entries. They organise declared scope details and do not infer technical connections; enter the actual relationships below.</p><div className="scope-template-diagrams"><figure><img src={`data:image/svg+xml;charset=utf-8,${encodeURIComponent(buildScopeDiagramSvg(scope, 'boundary'))}`} alt="Generated DCC and Cyber Essentials scope boundary diagram" /><figcaption>DCC and CE / CE+ boundary categories</figcaption></figure><figure><img src={`data:image/svg+xml;charset=utf-8,${encodeURIComponent(buildScopeDiagramSvg(scope, 'architecture'))}`} alt="Generated diagram of declared sites, systems, assets and data storage" /><figcaption>Declared components and applicant-entered connections</figcaption></figure></div>{simpleField('diagram', 'dccCeCoterminous', 'Boundary diagram description', { required: true, multiline: true, help: 'Describe what sits in each boundary and what is shared.' })}<EditableConnections connections={scope.diagram.connections} onChange={(connections) => update('diagram', 'connections', connections)} />{simpleField('diagram', 'relationships', 'Systems, networks, assets and relationships', { required: true, multiline: true, help: 'Explain the overall architecture and any relationships that are not captured above. State unknown links explicitly.' })}</>}
+      {stepIndex === 9 && <>{certificationLabels.map(([key, label]) => <fieldset className="scope-repeatable-row" key={key}><legend>{label}</legend>{[['scope','Scope boundary'],['reference','Certificate reference'],['status','Status / validity'],['renewalDate','Renewal or assessment date']].map(([field,labelText]) => <Field key={field} label={labelText} value={scope.certifications[key][field]} onChange={(value) => onScopeChange({ ...scope, certifications: { ...scope.certifications, [key]: { ...scope.certifications[key], [field]: value } } })} />)}</fieldset>)}{simpleField('certifications', 'dccReference', 'DCC reference') }</>}
+      {stepIndex === 10 && <><p className="scope-review-note">Review each section using the section navigation above. The generated Word preview labels unprovided details; resolve these items or record “Not applicable” / “Not held” before formal submission.</p><div className="scope-review-summary"><p><strong>Organisation:</strong> {scope.organisation.legalName || 'Not provided'}</p><p><strong>In-scope activity:</strong> {scope.service.description || 'Not provided'}</p><p><strong>Sites:</strong> {scope.sites.length} · <strong>Systems:</strong> {scope.systems.length} · <strong>Asset classes:</strong> {scope.assets.length} · <strong>Storage types:</strong> {scope.dataStorage.length}</p><p><strong>Exclusions:</strong> {scope.boundaries.exclusions.length} · <strong>OT:</strong> {scope.ot.operates || 'Not confirmed'}</p><p><strong>Authorised signatory:</strong> {scope.declaration.signatoryName || 'Not provided'}</p></div><section className={`scope-completeness${missingReviewChecks.length || !coreScopeComplete ? ' has-gaps' : ' is-ready'}`}><h3>{missingReviewChecks.length ? `${missingReviewChecks.length} details need review` : !coreScopeComplete ? 'Core scope sections need completion' : 'All template detail prompts have a response'}</h3>{missingReviewChecks.length ? <ul>{missingReviewChecks.map(([label, , target]) => <li key={label}><span>{label}</span><button type="button" className="evidence-inline-link" onClick={() => onSectionChange(target)}>Go to section {target + 1}</button></li>)}</ul> : coreScopeComplete && <p>Core scope content, boundary relationships, certifications and authorisation details are recorded.</p>}{!coreScopeComplete && <p className="form-error">Complete the required scope, boundary, site, systems, asset, storage, OT and signatory entries to continue to the attestation preview.</p>}</section>{simpleField('declaration', 'statement', 'Attestation statement (optional custom wording)', { multiline: true, help: 'Leave blank to use the standard statement in the preview and exported document.' })}{simpleField('declaration', 'signatoryName', 'Authorised signatory full name', { required: true })}{simpleField('declaration', 'signatoryTitle', 'Title / position', { required: true })}{simpleField('declaration', 'signatureDate', 'Declaration date')}{simpleField('declaration', 'additionalDeclaration', 'Additional declaration or notes', { multiline: true })}</>}
+      <section className="evidence-pack"><h3>Question evidence checklist</h3><p>Browse DCC source questions and suggested supporting files or records.</p><button type="button" className="btn btn-secondary" onClick={onOpenEvidence}>Open evidence checklist</button></section>
+    </div>
+    <footer className="scope-guided-footer"><button type="button" className="btn btn-secondary" onClick={stepIndex ? () => onSectionChange(stepIndex - 1) : onBack}>{stepIndex ? 'Previous section' : 'Back'}</button><span>Section {stepIndex + 1} of {steps.length} · Changes are saved as you go</span>{stepIndex < steps.length - 1 ? <button type="button" className="btn btn-primary" onClick={() => { onSectionChange(stepIndex + 1); window.scrollTo({ top: 0, behavior: 'smooth' }); }}>Save and continue</button> : <button type="button" className="btn btn-primary" onClick={onContinue} disabled={!scopeHasRequiredContent(scope)}>Review attestation</button>}</footer>
+  </section></main>;
 }

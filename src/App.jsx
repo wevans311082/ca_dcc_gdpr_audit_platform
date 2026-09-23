@@ -5,6 +5,8 @@ import WizardStep from './components/WizardStep';
 import AuditReport from './components/AuditReport';
 import ScopingWizard from './components/ScopingWizard';
 import ScopeAttestation from './components/ScopeAttestation';
+import { EMPTY_SCOPE, migrateScope } from './utils/scopeModel';
+import EvidencePack from './components/EvidencePack';
 import DocumentLibrary from './components/DocumentLibrary';
 import AdminConsole from './components/AdminConsole';
 import AuthEntry from './components/AuthEntry';
@@ -35,10 +37,10 @@ function formatDate(dateStr) {
   return new Date(year, month - 1, day).toLocaleDateString('en-GB');
 }
 
-function buildScopePayload(scope, { assessorName, organisationName, auditDate, certifications, currentStep, view }) {
+function buildScopePayload(scope, { assessorName, organisationName, auditDate, certifications, currentStep, currentScopeSection, view }) {
   return {
     ...scope,
-    _dccMetadata: { assessorName, organisationName, auditDate, certifications, currentStep, view },
+    _dccMetadata: { assessorName, organisationName, auditDate, certifications, currentStep, currentScopeSection, view },
   };
 }
 
@@ -72,8 +74,10 @@ export default function App() {
   const [started, setStarted] = useState(false);
   const [showScope, setShowScope] = useState(false);
   const [showAttestation, setShowAttestation] = useState(false);
+  const [showEvidence, setShowEvidence] = useState(false);
   const [selectedLevel, setSelectedLevel] = useState(0);
-  const [scope, setScope] = useState({});
+  const [scope, setScope] = useState(() => migrateScope(EMPTY_SCOPE));
+  const [currentScopeSection, setCurrentScopeSection] = useState(0);
   const [certifications, setCertifications] = useState([]);
   const [importError, setImportError] = useState('');
   const [session, setSession] = useState(loadSession);
@@ -144,8 +148,19 @@ export default function App() {
     scheduleSave('scope', () => saveScope(
       session,
       auditId,
-      buildScopePayload(nextScope, { assessorName, organisationName, auditDate, certifications, currentStep, view }),
+      buildScopePayload(nextScope, { assessorName, organisationName, auditDate, certifications, currentStep, currentScopeSection, view }),
       nextLevel,
+    ));
+  };
+
+  const handleScopeSectionChange = (section) => {
+    setCurrentScopeSection(section);
+    if (!session || !auditId) return;
+    scheduleSave('scope', () => saveScope(
+      session,
+      auditId,
+      buildScopePayload(scope, { assessorName, organisationName, auditDate, certifications, currentStep, currentScopeSection: section, view: 'scope' }),
+      selectedLevel,
     ));
   };
 
@@ -198,7 +213,8 @@ export default function App() {
       setShowScope(false);
       setShowAttestation(false);
       setSelectedLevel(0);
-      setScope({});
+      setScope(migrateScope(EMPTY_SCOPE));
+      setCurrentScopeSection(0);
       setCertifications([]);
       setAuditId(null);
       setPersistenceStatus('');
@@ -266,7 +282,7 @@ export default function App() {
     setLoginOrganizationId('');
   };
 
-  const persistScopeAndStart = async (nextView) => {
+  const persistScopeAndStart = async (nextView, nextScope = scope) => {
     if (!session) throw new Error('Create a workspace account before starting a server-backed audit.');
     let nextAuditId = auditId;
     if (!nextAuditId) {
@@ -282,7 +298,7 @@ export default function App() {
     await saveScope(
       session,
       nextAuditId,
-      buildScopePayload(scope, { assessorName, organisationName, auditDate, certifications, currentStep, view: nextView }),
+      buildScopePayload(nextScope, { assessorName, organisationName, auditDate, certifications, currentStep, currentScopeSection, view: nextView }),
       selectedLevel,
     );
     await refreshDocuments(nextAuditId);
@@ -299,6 +315,16 @@ export default function App() {
       setPersistenceStatus('Save failed');
       setApiError(error.message);
     }
+  };
+
+  const handleStartScoping = async () => {
+    const nextScope = migrateScope({ ...scope, organisation: { ...scope.organisation, legalName: scope.organisation.legalName || organisationName, assessor: scope.organisation.assessor || assessorName, documentDate: scope.organisation.documentDate || new Date().toISOString().slice(0, 10) } });
+    setScope(nextScope);
+    setStarted(true);
+    setShowScope(true);
+    setPersistenceStatus('Saving scope…');
+    setApiError('');
+    try { await persistScopeAndStart('scope', nextScope); } catch (error) { setPersistenceStatus('Save failed'); setApiError(error.message); }
   };
 
   const handleStartAudit = async () => {
@@ -320,7 +346,8 @@ export default function App() {
       setAuditId(audit.id);
       setSelectedLevel(audit.selected_level);
       setAssessments(hydrateAssessments(audit.selected_level, savedAssessments));
-      setScope(Object.fromEntries(Object.entries(savedScope).filter(([key]) => key !== '_dccMetadata')));
+      setScope(migrateScope(Object.fromEntries(Object.entries(savedScope).filter(([key]) => key !== '_dccMetadata'))));
+      setCurrentScopeSection(Math.max(0, Math.min(metadata.currentScopeSection || 0, 10)));
       setAssessorName(metadata.assessorName || '');
       setOrganisationName(metadata.organisationName || session.organization.name);
       setAuditDate(metadata.auditDate || new Date().toISOString().slice(0, 10));
@@ -395,16 +422,16 @@ export default function App() {
         ? { enabled: false, message: 'Upload and index at least one policy document before generating an answer.' }
         : { enabled: true, message: `Uses indexed policy excerpts and ${readiness.answerModel || 'the configured answer model'}; it does not change assessor findings.` };
 
-  const handleScopeChange = (field, value) => {
-    const nextScope = { ...scope, [field]: value };
+  const handleScopeChange = (value, group) => {
+    const nextScope = group ? { ...scope, [group]: value } : value;
     setScope(nextScope);
     queueScopeSave(nextScope);
   };
 
   const handleDownloadCheckpoint = () => {
     const checkpoint = buildCheckpoint({
-      assessments, assessorName, organisationName, auditDate, scope, certifications, selectedLevel, currentStep,
-      view: showReport ? 'report' : showAttestation ? 'attestation' : showScope ? 'scope' : started ? 'audit' : 'start',
+      assessments, assessorName, organisationName, auditDate, scope, certifications, selectedLevel, currentStep, currentScopeSection,
+      view: showReport ? 'report' : showAttestation ? 'attestation' : showEvidence ? 'evidence' : showScope ? 'scope' : started ? 'audit' : 'start',
     });
     const blob = new Blob([JSON.stringify(checkpoint, null, 2)], { type: 'application/json' });
     const link = document.createElement('a');
@@ -425,7 +452,8 @@ export default function App() {
       setOrganisationName(checkpoint.metadata.organisationName || '');
       setAuditDate(checkpoint.metadata.auditDate || new Date().toISOString().slice(0, 10));
       setCertifications(checkpoint.metadata.certifications || []);
-      setScope(checkpoint.scope);
+      setScope(migrateScope(checkpoint.scope));
+      setCurrentScopeSection(Math.max(0, Math.min(checkpoint.currentScopeSection || 0, 10)));
       setSelectedLevel(checkpoint.selectedLevel);
       setAssessments(Object.fromEntries(
         Object.entries(checkpoint.assessments).map(([stepId, items]) => [
@@ -446,6 +474,7 @@ export default function App() {
       setStarted(checkpoint.view !== 'start');
       setShowScope(checkpoint.view === 'scope');
       setShowAttestation(checkpoint.view === 'attestation');
+      setShowEvidence(checkpoint.view === 'evidence');
       setShowReport(checkpoint.view === 'report');
       setImportError('');
     } catch (error) {
@@ -572,7 +601,7 @@ export default function App() {
             <div className="start-actions">
               <button className="btn btn-secondary" onClick={() => importInputRef.current?.click()}>Import JSON</button>
               {session?.role === 'org_admin' && <button className="btn btn-secondary" onClick={() => setShowAdmin(true)}>Admin console</button>}
-              <button className="btn btn-primary btn-large" onClick={() => { setStarted(true); setShowScope(true); }}>
+              <button className="btn btn-primary btn-large" onClick={handleStartScoping}>
                 Define Scope
               </button>
               <button className="btn btn-secondary" onClick={handleSignOut}>Sign out</button>
@@ -598,6 +627,7 @@ export default function App() {
         <header className="app-header">
           <span className="app-logo-icon" aria-hidden="true">🛡️</span>
           <div><h1 className="app-title">DCC GDPR Readiness Guide</h1><p className="app-subtitle">Scope agreement and assessment preparation</p></div>
+          {persistenceStatus && <span className="persistence-status" role="status">{persistenceStatus}</span>}
           <button className="btn btn-secondary btn-sm reset-btn" onClick={handleDownloadCheckpoint}>Save JSON</button>
           {session?.role === 'org_admin' && <button className="btn btn-secondary btn-sm" onClick={() => setShowAdmin(true)}>Admin</button>}
         </header>
@@ -609,7 +639,24 @@ export default function App() {
           onBack={() => { setShowScope(false); setStarted(false); }}
           onContinue={handleScopeContinue}
           onSkip={() => setShowScope(false)}
+          onOpenEvidence={() => { setShowScope(false); setShowEvidence(true); }}
+          currentSection={currentScopeSection}
+          onSectionChange={handleScopeSectionChange}
+          error={apiError}
         />
+      </div>
+    );
+  }
+
+  if (showEvidence) {
+    return (
+      <div className="app-shell">
+        <header className="app-header no-print">
+          <span className="app-logo-icon" aria-hidden="true">🛡️</span>
+          <div><h1 className="app-title">DCC GDPR Readiness Guide</h1><p className="app-subtitle">Evidence preparation and navigation</p></div>
+          <button className="btn btn-secondary btn-sm reset-btn" onClick={handleDownloadCheckpoint}>Save JSON</button>
+        </header>
+        <EvidencePack levelConfig={levelConfig} onBack={() => { setShowEvidence(false); setShowScope(true); }} />
       </div>
     );
   }

@@ -23,6 +23,8 @@ This tool provides a structured, step-by-step wizard that walks an assessor thro
 - **Assessment summary** — At-a-glance counts of each compliance status
 - **Final report** — A printable/PDF-exportable report covering all sections and findings
 - **Session metadata** — Organisation name, assessor name, and audit date captured at the start
+- **Guided DCC scope attestation** — A resumable section-by-section scope builder for organisation details, services, sites, systems, OT, assets, storage, exclusions, certification alignment, diagrams, and signatory review
+- **Word attestation export** — Download an editable `.docx` with template-aligned headings, tables, declarations, and diagrams generated from the entered scope
 - **Reset** — Start a fresh audit at any time
 
 > **Note:** Completing this assessment indicates that the applicant has suitable policies and evidence in place at a baseline level. It does not constitute a legal guarantee of full GDPR compliance.
