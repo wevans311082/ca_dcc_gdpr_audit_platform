@@ -69,10 +69,15 @@ async function deleteWorkspaceVectors(qdrantUrl, organizationId) {
 }
 
 async function fetchModels(apiKey) {
-  const response = await fetch('https://api.openai.com/v1/models', {
-    headers: { Authorization: `Bearer ${apiKey}` },
-    signal: AbortSignal.timeout(10_000),
-  });
+  let response;
+  try {
+    response = await fetch('https://api.openai.com/v1/models', {
+      headers: { Authorization: `Bearer ${apiKey}` },
+      signal: AbortSignal.timeout(10_000),
+    });
+  } catch (error) {
+    throw new Error(`Could not reach OpenAI: ${error.message || 'network request failed'}`);
+  }
   const result = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(result.error?.message || `OpenAI returned ${response.status}.`);
   return (result.data || []).map((model) => model.id).filter(Boolean).sort();
@@ -88,6 +93,7 @@ async function readSettings(database, config, organizationId) {
     apiKey: resolved.openAiApiKey,
     answerModel: resolved.openAiAnswerModel,
     configuredByOrganization: Boolean(organizationSettings.rows[0]?.openai_api_key_ciphertext),
+    keyError: resolved.openAiKeyError,
   };
 }
 
@@ -108,6 +114,60 @@ export async function adminRoutes(app, { config, database, storage }) {
     return { openAiConfigured: Boolean(settings.openAiApiKey), answerModel: settings.openAiAnswerModel };
   });
 
+  app.get('/api/admin/services', { preHandler: adminOnly }, async () => {
+    const checks = await Promise.allSettled([
+      database.query('SELECT 1'),
+      ingestionQueue.client,
+      fetch(`${config.qdrantUrl.replace(/\/$/, '')}/healthz`, { signal: AbortSignal.timeout(3_000) })
+        .then((response) => { if (!response.ok) throw new Error(`HTTP ${response.status}`); }),
+      fetch(`${config.ollamaBaseUrl.replace(/\/$/, '')}/api/tags`, { signal: AbortSignal.timeout(3_000) })
+        .then((response) => { if (!response.ok) throw new Error(`HTTP ${response.status}`); return response.json(); }),
+      storage.check(),
+      ingestionQueue.getJobCounts('waiting', 'active', 'failed', 'delayed'),
+      packageQueue.getJobCounts('waiting', 'active', 'failed', 'delayed'),
+    ]);
+    const status = (index, detail = null) => ({
+      status: checks[index].status === 'fulfilled' ? 'online' : 'offline',
+      detail: checks[index].status === 'fulfilled' ? detail : checks[index].reason?.message || 'Connection failed.',
+    });
+    const ollamaResult = checks[3].status === 'fulfilled' ? checks[3].value : null;
+    const models = ollamaResult?.models?.map((model) => model.name) || [];
+    const modelAvailable = models.some((model) => model === config.ollamaEmbeddingModel || model.startsWith(`${config.ollamaEmbeddingModel}:`));
+    const queueCounts = (index) => checks[index].status === 'fulfilled' ? checks[index].value : null;
+    return {
+      checkedAt: new Date().toISOString(),
+      services: [
+        { name: 'PostgreSQL', ...status(0, 'Database query succeeded.') },
+        { name: 'Redis', ...status(1, 'Queue connection available.') },
+        { name: 'Qdrant', ...status(2, `Vector database at ${config.qdrantUrl}`) },
+        { name: 'MinIO object storage', ...status(4, `Bucket: ${config.minioBucket}`) },
+        { name: 'Ollama', ...status(3, ollamaResult ? `Connected; ${models.length} model(s) installed.` : null) },
+        { name: `Embedding model: ${config.ollamaEmbeddingModel}`, status: modelAvailable ? 'online' : 'unavailable', detail: modelAvailable ? 'Installed in Ollama.' : 'Model is not listed by Ollama.' },
+        { name: 'Document ingestion queue', status: queueCounts(5) ? 'online' : 'unavailable', detail: queueCounts(5) ? `${queueCounts(5).waiting} waiting, ${queueCounts(5).active} active, ${queueCounts(5).failed} failed, ${queueCounts(5).delayed} delayed. Queue availability does not confirm a worker process is running.` : 'Queue status unavailable.' },
+        { name: 'Evidence package queue', status: queueCounts(6) ? 'online' : 'unavailable', detail: queueCounts(6) ? `${queueCounts(6).waiting} waiting, ${queueCounts(6).active} active, ${queueCounts(6).failed} failed, ${queueCounts(6).delayed} delayed. Queue availability does not confirm a worker process is running.` : 'Queue status unavailable.' },
+      ],
+    };
+  });
+
+  app.post('/api/admin/ollama/test', { preHandler: adminOnly }, async (request, reply) => {
+    try {
+      const response = await fetch(`${config.ollamaBaseUrl.replace(/\/$/, '')}/api/embed`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ model: config.ollamaEmbeddingModel, input: ['connection test'] }),
+        signal: AbortSignal.timeout(30_000),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error || `Ollama returned HTTP ${response.status}.`);
+      const embedding = result.embeddings?.[0];
+      if (!Array.isArray(embedding) || embedding.length === 0) throw new Error('Ollama returned no embedding vector.');
+      return { connected: true, model: config.ollamaEmbeddingModel, dimensions: embedding.length };
+    } catch (error) {
+      request.log.warn({ error: error.message }, 'Ollama embedding connection test failed.');
+      return reply.code(502).send({ connected: false, model: config.ollamaEmbeddingModel, error: error.message || 'Ollama embedding test failed.' });
+    }
+  });
+
   app.get('/api/admin/ai-settings', { preHandler: adminOnly }, async (request) => {
     const settings = await readSettings(database, config, request.user.organizationId);
     return {
@@ -115,6 +175,7 @@ export async function adminRoutes(app, { config, database, storage }) {
       configuredByOrganization: settings.configuredByOrganization,
       maskedApiKey: settings.apiKey ? `••••••••${settings.apiKey.slice(-4)}` : '',
       answerModel: settings.answerModel,
+      keyError: settings.keyError,
     };
   });
 
@@ -152,8 +213,9 @@ export async function adminRoutes(app, { config, database, storage }) {
 
   app.post('/api/admin/ai-settings/test', { preHandler: adminOnly }, async (request, reply) => {
     const { apiKey, answerModel } = request.body || {};
-    const saved = await readSettings(database, config, request.user.organizationId);
-    const candidateKey = typeof apiKey === 'string' && apiKey.trim() ? apiKey.trim() : saved.apiKey;
+    const candidateKey = typeof apiKey === 'string' && apiKey.trim()
+      ? apiKey.trim()
+      : (await readSettings(database, config, request.user.organizationId)).apiKey;
     if (!candidateKey) return reply.code(400).send({ error: 'Enter an API key before testing.' });
     try {
       const models = await fetchModels(candidateKey);

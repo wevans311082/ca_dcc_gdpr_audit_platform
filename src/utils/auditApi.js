@@ -238,3 +238,11 @@ export async function loginWorkspace(credentials) {
   saveSession(session);
   return { session };
 }
+
+export function getAdminServices(session) {
+  return request('/admin/services', { token: session.token });
+}
+
+export function testAdminOllama(session) {
+  return request('/admin/ollama/test', { token: session.token, method: 'POST', body: {} });
+}

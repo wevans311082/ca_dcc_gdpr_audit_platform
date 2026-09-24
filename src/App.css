@@ -1961,14 +1961,17 @@
 }
 
 .admin-status-indexed,
-.admin-status-configured {
+.admin-status-configured,
+.admin-status-online {
   background: #e3f0e8;
   color: #245d3d;
 }
 
 .admin-status-failed,
 .admin-status-unsupported,
-.admin-status-not-configured {
+.admin-status-not-configured,
+.admin-status-offline,
+.admin-status-unavailable {
   background: #f6e7e3;
   color: #873b31;
 }

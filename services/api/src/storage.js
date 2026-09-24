@@ -32,6 +32,9 @@ export function createDocumentStorage(config) {
         ContentType: contentType,
       }));
     },
+    async check() {
+      await client.send(new HeadBucketCommand({ Bucket: config.minioBucket }));
+    },
     async remove(key) {
       await client.send(new DeleteObjectCommand({ Bucket: config.minioBucket, Key: key }));
     },

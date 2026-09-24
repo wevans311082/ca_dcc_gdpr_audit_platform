@@ -2,11 +2,12 @@ import { useEffect, useState } from 'react';
 import {
   createAdminMember, deleteAdminWorkspace, downloadDocument, getAdminAiSettings, getAdminWorkspace,
   listAdminDocuments, listAdminMembers, removeAdminMember, renameAdminWorkspace, saveAdminAiSettings,
-  testAdminAiSettings, updateAdminMemberRole,
+  getAdminServices, testAdminAiSettings, testAdminOllama, updateAdminMemberRole,
 } from '../utils/auditApi';
 
 const tabs = [
   { id: 'settings', label: 'AI settings' },
+  { id: 'services', label: 'Services' },
   { id: 'uploads', label: 'Uploaded files' },
   { id: 'members', label: 'Members & workspace' },
   { id: 'api', label: 'API reference' },
@@ -35,6 +36,8 @@ export default function AdminConsole({ session, onBack, onSettingsSaved, onWorks
   const [answerModel, setAnswerModel] = useState('');
   const [models, setModels] = useState([]);
   const [testResult, setTestResult] = useState(null);
+  const [ollamaTest, setOllamaTest] = useState(null);
+  const [services, setServices] = useState(null);
   const [documents, setDocuments] = useState([]);
   const [members, setMembers] = useState([]);
   const [workspaceName, setWorkspaceName] = useState(session.organization?.name || '');
@@ -64,7 +67,7 @@ export default function AdminConsole({ session, onBack, onSettingsSaved, onWorks
   useEffect(() => {
     let cancelled = false;
     Promise.all([
-      getAdminAiSettings(session),
+      getAdminAiSettings(session).catch((settingsError) => ({ settingsError })),
       listAdminDocuments(session),
       getAdminWorkspace(session),
       listAdminMembers(session),
@@ -74,8 +77,12 @@ export default function AdminConsole({ session, onBack, onSettingsSaved, onWorks
       }),
     ]).then(([nextSettings, inventory, currentWorkspace, workspaceMembers, spec]) => {
       if (cancelled) return;
-      setSettings(nextSettings);
-      setAnswerModel(nextSettings.answerModel);
+      if (nextSettings.settingsError) {
+        setError(`OpenAI settings could not be loaded: ${nextSettings.settingsError.message}`);
+      } else {
+        setSettings(nextSettings);
+        setAnswerModel(nextSettings.answerModel);
+      }
       setDocuments(inventory.documents);
       setWorkspaceName(currentWorkspace.workspace.name);
       setMembers(workspaceMembers.members);
@@ -118,6 +125,21 @@ export default function AdminConsole({ session, onBack, onSettingsSaved, onWorks
         ? 'API key works, but the selected model is not listed for this key. Choose an available model before saving.'
         : `API key works. ${answerModels.length} answer models are available.`);
     }
+  };
+
+  const handleOllamaTest = async () => {
+    const result = await runAction(
+      () => testAdminOllama(session),
+      'Ollama embedding test succeeded.',
+    );
+    if (result) setOllamaTest(result);
+    else setOllamaTest({ connected: false, error: error || 'Ollama embedding test failed.' });
+  };
+
+  const refreshServices = async () => {
+    const result = await getAdminServices(session);
+    setServices(result);
+    return result;
   };
 
   const handleSave = async () => {
@@ -231,6 +253,7 @@ export default function AdminConsole({ session, onBack, onSettingsSaved, onWorks
               <StatusLabel status={settings?.configured ? 'configured' : 'not configured'} />
             </div>
             <p className="admin-copy">The API key is encrypted before it is stored. Existing keys are never returned to the browser.</p>
+            {settings?.keyError && <p className="admin-alert is-error" role="alert">{settings.keyError}</p>}
             <div className="admin-form-grid">
               <label className="admin-field admin-field-wide" htmlFor="admin-api-key">
                 <span>API key</span>
@@ -257,7 +280,7 @@ export default function AdminConsole({ session, onBack, onSettingsSaved, onWorks
               <button type="button" className="btn btn-secondary" onClick={handleTest} disabled={busy}>
                 {busy ? 'Checking…' : 'Test key and load models'}
               </button>
-              <button type="button" className="btn btn-primary" onClick={handleSave} disabled={busy || !answerModel || testResult?.modelAvailable === false}>
+              <button type="button" className="btn btn-primary" onClick={handleSave} disabled={busy || !answerModel}>
                 Save settings
               </button>
               {settings?.configuredByOrganization && (
@@ -265,6 +288,36 @@ export default function AdminConsole({ session, onBack, onSettingsSaved, onWorks
               )}
             </div>
             {models.length > 0 && <p className="admin-copy">{models.length} model IDs returned by the provider. A model may be listed but unavailable to your account.</p>}
+            <div className="admin-subsection-heading">
+              <div><h3>Local embedding service</h3><p className="admin-copy">Document embeddings use Ollama locally with the configured embedding model. This does not require an OpenAI key.</p></div>
+              <button type="button" className="btn btn-secondary btn-sm" onClick={handleOllamaTest} disabled={busy}>{busy ? 'Testing…' : 'Test Ollama embedding'}</button>
+            </div>
+            {ollamaTest && <p className={`admin-alert ${ollamaTest.connected ? 'is-success' : 'is-error'}`} role="status">
+              {ollamaTest.connected ? `Ollama is connected. ${ollamaTest.model} returned a ${ollamaTest.dimensions}-dimension embedding.` : `Ollama test failed: ${ollamaTest.error}`}
+            </p>}
+          </section>
+        )}
+
+        {activeTab === 'services' && (
+          <section className="admin-section" aria-labelledby="services-title">
+            <div className="admin-section-heading">
+              <div><p className="admin-eyebrow">Infrastructure diagnostics</p><h2 id="services-title">Databases, workers &amp; services</h2></div>
+              <button type="button" className="btn btn-secondary btn-sm" onClick={() => runAction(refreshServices, 'Service status refreshed.')} disabled={busy}>Refresh status</button>
+            </div>
+            {!services && <p className="admin-copy">Load service status to check database, storage, embedding, and queue connections.</p>}
+            {services && <>
+              <p className="admin-copy">Last checked {formatDate(services.checkedAt)}. Queue availability shows Redis queue access and job counts; it does not prove a worker process is actively running.</p>
+              <div className="admin-table-wrap">
+                <table className="admin-table">
+                  <thead><tr><th>Service</th><th>Status</th><th>Details</th></tr></thead>
+                  <tbody>{services.services.map((service) => <tr key={service.name}>
+                    <td><strong>{service.name}</strong></td>
+                    <td><StatusLabel status={service.status} /></td>
+                    <td>{service.detail}</td>
+                  </tr>)}</tbody>
+                </table>
+              </div>
+            </>}
           </section>
         )}
 

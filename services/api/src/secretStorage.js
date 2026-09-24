@@ -28,12 +28,21 @@ export async function resolveOrganizationAiConfig(database, config, organization
     [organizationId],
   );
   const saved = result.rows[0];
-  const storedKey = saved?.openai_api_key_ciphertext
-    ? decryptSecret(saved.openai_api_key_ciphertext, config.jwtSecret)
-    : null;
+  let storedKey = null;
+  let keyError = null;
+  if (saved?.openai_api_key_ciphertext) {
+    try {
+      storedKey = decryptSecret(saved.openai_api_key_ciphertext, config.jwtSecret);
+    } catch {
+      // A rotated JWT secret makes existing ciphertext unreadable. Keep local
+      // workspace functionality available and let administrators replace it.
+      keyError = 'The saved OpenAI key could not be decrypted. Replace the key in AI settings.';
+    }
+  }
   return {
     ...config,
     openAiApiKey: storedKey || config.openAiApiKey,
     openAiAnswerModel: saved?.answer_model || config.openAiAnswerModel,
+    openAiKeyError: keyError,
   };
 }
